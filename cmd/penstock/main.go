@@ -87,6 +87,7 @@ func run() error {
 	gateway := ingress.NewServer(cfg.Server, routes, log,
 		ingress.WithMetrics(metrics),
 		ingress.WithClientKeys(cfg.Auth.ClientKeys),
+		ingress.WithTenantKeys(tenantKeys(cfg)),
 		ingress.WithInflightLimit(cfg.Server.MaxInflight),
 	)
 
@@ -181,6 +182,20 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 		routes[route.Model] = routed
 	}
 	return routes, nil
+}
+
+// tenantKeys indexes every tenant's keys by tenant name. Config permits
+// a deployment whose only credentials are tenant keys, so leaving these
+// out would open such a gateway to anyone.
+func tenantKeys(cfg *config.Config) map[string][]string {
+	if len(cfg.Auth.Tenants) == 0 {
+		return nil
+	}
+	byTenant := make(map[string][]string, len(cfg.Auth.Tenants))
+	for _, t := range cfg.Auth.Tenants {
+		byTenant[t.Name] = t.Keys
+	}
+	return byTenant
 }
 
 func strategyOrDefault(s string) string {

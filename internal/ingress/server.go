@@ -56,6 +56,19 @@ func WithClientKeys(keys []string) Option {
 	return func(s *Server) { s.clientKeys = newKeySet(keys) }
 }
 
+// WithTenantKeys adds keys that carry an identity, so spend under them
+// can be attributed and limited. A deployment may use these alone: they
+// authenticate exactly like anonymous client keys.
+func WithTenantKeys(byTenant map[string][]string) Option {
+	return func(s *Server) {
+		for tenant, keys := range byTenant {
+			for _, key := range keys {
+				s.clientKeys.add(key, tenant)
+			}
+		}
+	}
+}
+
 // WithInflightLimit caps concurrent in flight requests.
 func WithInflightLimit(limit int) Option {
 	return func(s *Server) { s.inflight = newInflight(limit) }
@@ -134,6 +147,7 @@ type logInfo struct {
 	start    time.Time
 	model    string
 	provider string
+	tenant   string
 	stream   bool
 }
 
@@ -178,6 +192,7 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 				"path", r.URL.Path,
 				"model", info.model,
 				"provider", info.provider,
+				"tenant", info.tenant,
 				"status", sw.Status(),
 				"duration_ms", elapsed.Milliseconds(),
 				"stream", info.stream,

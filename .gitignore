@@ -1,8 +1,12 @@
-# binaries, wherever a build happens to drop them
-penstock
-penstock.exe
-llmsim
-llmsim.exe
+# Built binaries. Anchored on purpose: a bare "penstock" pattern also
+# matches the cmd/penstock directory and would quietly stop new source
+# files there from being committed.
+/penstock
+/penstock.exe
+/llmsim
+/llmsim.exe
+/cmd/penstock/penstock
+/cmd/llmsim/llmsim
 *.exe
 /bin/
 /dist/
