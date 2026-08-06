@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
+	"github.com/rajeev-chaurasia/pen-stock/internal/httperr"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
@@ -28,7 +29,9 @@ const (
 	// clients ignore it.
 	sseKeepaliveFrame = ": keep-alive\n\n"
 
-	contentTypeJSON = "application/json"
+	// The JSON media type is part of the error envelope contract, so it
+	// comes from the same place that contract does.
+	contentTypeJSON = httperr.ContentTypeJSON
 	contentTypeSSE  = "text/event-stream"
 
 	headerNoSniff = "nosniff"
