@@ -42,10 +42,15 @@ const MaxTimeoutMS int = 3600000
 const MinClientKeyLength = 16
 
 // MinSemanticThreshold is the loosest similarity the loader will accept.
-// A false hit is a confidently wrong answer nobody traces back to the
-// cache, while a miss costs one ordinary API call, so the floor sits
-// well above where paraphrases start blurring into opposites.
-const MinSemanticThreshold = 0.80
+//
+// Measured against a live embedder, questions with opposite meanings
+// score as high as 0.94 while genuine paraphrases score around 0.82, so
+// no threshold actually separates them. The floor is set above the
+// highest measured opposite rather than below the lowest paraphrase:
+// the tier fires rarely, which is the correct trade when the failure
+// mode is answering the opposite of what was asked. See the package
+// documentation of internal/cache for the measurements.
+const MinSemanticThreshold = 0.95
 
 // isLoopbackListen reports whether addr binds only the loopback
 // interface. An empty or wildcard host reaches every interface.

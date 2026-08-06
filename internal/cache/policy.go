@@ -28,6 +28,30 @@
 // never surface in another's response. That trade is not configurable,
 // because the failure it prevents is a data leak rather than a
 // performance regression.
+//
+// # Why the semantic tier is off by default
+//
+// Similarity is not equivalence, and measurement says the gap is worse
+// than it sounds. Embedding real questions with a current model and
+// comparing by cosine distance produces this, which
+// TestMeasureRealSimilarities reproduces against a live key:
+//
+//	0.829  "What is the capital city of France?" vs "Which city is the capital of France?"
+//	0.810  "How do I sort a list in Python?"     vs "What is the way to sort a python list?"
+//	0.908  "How do I enable logging?"            vs "How do I disable logging?"
+//	0.926  "Is it safe to delete this file?"     vs "Is it unsafe to delete this file?"
+//	0.942  "Should I use a mutex here?"          vs "Should I avoid a mutex here?"
+//
+// The two groups do not merely overlap, they invert: questions with
+// opposite meanings score HIGHER than genuine paraphrases, because one
+// negating word moves a sentence embedding very little while rephrasing
+// moves it a lot. No threshold separates them. Anything low enough to
+// catch a paraphrase serves the answer to "enable" when asked "disable".
+//
+// So the exact tier is the default and the semantic tier is opt in,
+// with a floor high enough that it rarely fires and a startup warning
+// when it is switched on. A cache that is fast and occasionally answers
+// the opposite question is not a faster gateway, it is a broken one.
 package cache
 
 import (

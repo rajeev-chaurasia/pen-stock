@@ -350,7 +350,12 @@ func buildCache(cfg *config.Config, metrics *obs.Metrics, log *slog.Logger) *cac
 			TTL:          time.Duration(cfg.Cache.TTLSeconds) * time.Second,
 			OnEvent:      onEvent,
 		})
-		log.Info("semantic cache enabled",
+		// Loud on purpose. Similarity does not separate a paraphrase
+		// from its negation, so this tier can answer the opposite of
+		// what was asked. An operator turning it on should have decided
+		// that a wrong answer is cheaper than an API call for their
+		// workload, not discovered it later.
+		log.Warn("semantic cache enabled: similar is not the same question, and this tier can serve the answer to an opposite one",
 			"threshold", sem.Threshold,
 			"embed_model", sem.EmbedModel,
 		)
