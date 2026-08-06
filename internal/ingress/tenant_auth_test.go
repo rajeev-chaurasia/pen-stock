@@ -44,8 +44,18 @@ func postWithKey(t *testing.T, url, key string) *http.Response {
 // If those keys were not registered with the auth layer, such a gateway
 // would come up with an empty key set and serve everyone, which is the
 // opposite of what configuring tenants asks for.
+// Test keys are built from repeated characters rather than written as
+// random looking literals. They only need to clear the minimum length,
+// and a high entropy string in a test file trips secret scanners, which
+// trains everyone to ignore them.
+var (
+	testTenantKey = strings.Repeat("t", 24)
+	testAnonKey   = strings.Repeat("a", 24)
+	testOtherKey  = strings.Repeat("z", 24)
+)
+
 func TestTenantKeysAuthenticateOnTheirOwn(t *testing.T) {
-	const tenantKey = "tenant-key-0123456789abcdef"
+	tenantKey := testTenantKey
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := ingress.NewServer(defaultCfg(),
 		map[string]providers.Provider{"m": okProvider("p")}, log,
@@ -61,7 +71,7 @@ func TestTenantKeysAuthenticateOnTheirOwn(t *testing.T) {
 	if got := postWithKey(t, ts.URL, "").StatusCode; got != http.StatusUnauthorized {
 		t.Errorf("status without a key = %d, want 401", got)
 	}
-	if got := postWithKey(t, ts.URL, "wrong-key-0123456789abcdef").StatusCode; got != http.StatusUnauthorized {
+	if got := postWithKey(t, ts.URL, testOtherKey).StatusCode; got != http.StatusUnauthorized {
 		t.Errorf("status with a wrong key = %d, want 401", got)
 	}
 	if got := postWithKey(t, ts.URL, tenantKey).StatusCode; got != http.StatusOK {
@@ -70,10 +80,7 @@ func TestTenantKeysAuthenticateOnTheirOwn(t *testing.T) {
 }
 
 func TestTenantAndAnonymousKeysCoexist(t *testing.T) {
-	const (
-		anonKey   = "anon-key-0123456789abcdef"
-		tenantKey = "acme-key-0123456789abcdef"
-	)
+	anonKey, tenantKey := testAnonKey, testTenantKey
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := ingress.NewServer(defaultCfg(),
 		map[string]providers.Provider{"m": okProvider("p")}, log,
@@ -88,7 +95,7 @@ func TestTenantAndAnonymousKeysCoexist(t *testing.T) {
 			t.Errorf("status with key %q = %d, want 200", key, got)
 		}
 	}
-	if got := postWithKey(t, ts.URL, "neither-0123456789abcdef").StatusCode; got != http.StatusUnauthorized {
+	if got := postWithKey(t, ts.URL, testOtherKey).StatusCode; got != http.StatusUnauthorized {
 		t.Errorf("status with an unknown key = %d, want 401", got)
 	}
 }
@@ -97,7 +104,7 @@ func TestHealthzStaysOpenWithTenantKeys(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := ingress.NewServer(defaultCfg(),
 		map[string]providers.Provider{}, log,
-		ingress.WithTenantKeys(map[string][]string{"acme": {"acme-key-0123456789abcdef"}}),
+		ingress.WithTenantKeys(map[string][]string{"acme": {testTenantKey}}),
 	)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
