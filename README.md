@@ -134,10 +134,16 @@ carrying a seed. Entries are keyed per tenant, so one tenant's answer
 cannot surface in another's response.
 
 The semantic tier, which answers a question similar to one already
-asked, is off by default. Measurement showed questions with opposite
-meanings scoring higher than genuine paraphrases, so no threshold
-reliably separates them. See [docs/semantic-caching.md](docs/semantic-caching.md)
-for the numbers and what they mean.
+asked, is off by default. Over 257 labelled probes, questions with
+opposite meanings scored higher than genuine paraphrases often enough
+that no threshold separates them: at the 0.95 floor the gateway ships,
+44 percent of semantic hits answered a question with the opposite
+meaning. The full sweep is in [docs/cache-quality.md](docs/cache-quality.md),
+reproducible with `cmd/cachestudy`, and the short version is in
+[docs/semantic-caching.md](docs/semantic-caching.md).
+
+Publishing a cache hit rate without its false hit rate is the norm and
+it is meaningless. This is the false hit rate.
 
 ## Status
 

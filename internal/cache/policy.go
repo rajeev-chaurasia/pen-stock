@@ -47,9 +47,15 @@
 // The two groups overlap, and three of the four opposite pairs score
 // HIGHER than either paraphrase. One negating word moves a sentence
 // embedding very little while rephrasing moves it a lot, so the
-// ordering carries no reliable signal about sameness of meaning. No
-// threshold separates the groups: anything low enough to catch a
-// paraphrase serves the answer to "enable" when asked "disable".
+// ordering carries no reliable signal about sameness of meaning.
+//
+// A larger study over 257 labelled probes settles it. A paraphrase
+// outscores its matching opposite only 39 percent of the time, which
+// is worse than a coin flip, and nine opposite pairs score above the
+// best paraphrase in the whole corpus, so no threshold can sit between
+// them. At the 0.95 floor this package ships, 44 percent of semantic
+// hits answered a question with the opposite meaning. The full sweep
+// is in docs/cache-quality.md and reproduces with cmd/cachestudy.
 //
 // So the exact tier is the default and the semantic tier is opt in,
 // with a floor high enough that it rarely fires and a startup warning

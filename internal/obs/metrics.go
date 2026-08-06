@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -76,6 +77,17 @@ func NewMetrics() *Metrics {
 			Help: "Cache events by type. Registered ahead of the caching phase.",
 		}, []string{"event"}),
 	}
+	// Go runtime series belong here for one reason: a soak looking for a
+	// leak needs heap and goroutine counts, and without them the only
+	// evidence available is resident set size sampled from outside,
+	// which cannot tell a leak from a fragmented allocator. The admin
+	// listener is loopback by default, so this is operator data on an
+	// operator surface.
+	m.registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
 	m.registry.MustRegister(
 		m.RequestsTotal,
 		m.RequestDurationSeconds,

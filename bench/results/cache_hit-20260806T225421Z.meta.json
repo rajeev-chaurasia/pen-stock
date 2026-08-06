@@ -1,0 +1,42 @@
+{
+  "run_id": "cache_hit-20260806T225421Z",
+  "scenario": "cache_hit",
+  "started_utc": "2026-08-06T22:54:58Z",
+  "commit": "492e178",
+
+  "hardware": {
+    "cpu": "Intel(R) Core(TM) Ultra 7 265H",
+    "logical_cpus": "16",
+    "memory": "63.5 GiB",
+    "os": "Microsoft Windows 11 Enterprise 10.0.26200",
+    "note": "load generator, gateway and simulated upstream all ran on this one machine and competed for these cores"
+  },
+
+  "toolchain": {
+    "go": "go version go1.26.5 windows/amd64",
+    "k6": "k6.exe v1.3.0 (commit/5870e99ae8, go1.25.1, windows/amd64)"
+  },
+
+  "upstream": {
+    "simulator": "llmsim",
+    "profile_path": "bench/profiles/groq.json",
+    "profile_status": "calibrated",
+    "seed": "1",
+    "time_scale": "1.0",
+    "instances": "two, identically seeded: one behind the gateway, one for the direct arm"
+  },
+
+  "gateway": {
+    "config": "bench/config/gateway-cache.yaml",
+    "listen": "http://127.0.0.1:8080"
+  },
+
+  "load": {
+    "duration": "90s",
+    "rate_per_second": "25",
+    "pre_allocated_vus": "100",
+    "max_vus": "400",
+    "soak_duration": "n/a",
+    "soak_vus": "n/a"
+  }
+}

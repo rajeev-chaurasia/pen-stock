@@ -1,0 +1,43 @@
+
+------------------------------------------------------------------------
+Penstock exact cache: hit against miss
+------------------------------------------------------------------------
+gateway      : http://127.0.0.1:8080
+direct       : http://127.0.0.1:8090
+model        : llmsim-small
+duration/arm : 45s
+cache keys   : 100
+semantic     : OFF on purpose, see docs/semantic-caching.md
+
+Hardware and OS are recorded by bench/run.sh in the .meta.json
+beside this run. A latency figure without that stanza is unusable.
+
+
+quantile           hit          miss     speedup
+------------------------------------------------------------------------
+p50            5.29 ms     290.01 ms       54.8x
+p95           21.79 ms     943.50 ms       43.3x
+p99           33.31 ms    2189.97 ms       65.7x
+mean           8.05 ms     396.15 ms       49.2x
+------------------------------------------------------------------------
+samples            180           181
+
+Hit rate
+------------------------------------------------------------------------
+warm entries stored : 100
+hit arm             : 100.00%   (asking only warmed questions)
+miss arm            : 0.00%   (asking only new questions)
+across both arms    : 49.86%
+
+That combined figure is an artifact of how this test splits its
+traffic, not a property of the cache. A hit rate only means
+something next to the request mix that produced it, and the mix
+here was chosen to measure both sides, not to look good.
+
+What this does and does not show
+------------------------------------------------------------------------
+A hit costs a hash and a map lookup and never leaves the process,
+so the ratio above is mostly a statement about how slow the
+simulated upstream is. Against a faster upstream the ratio shrinks;
+against a real provider on a bad day it grows. The transferable
+number is the absolute hit latency, not the speedup.

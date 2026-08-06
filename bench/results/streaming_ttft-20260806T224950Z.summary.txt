@@ -1,0 +1,49 @@
+
+------------------------------------------------------------------------
+Penstock streaming TTFT
+------------------------------------------------------------------------
+gateway      : http://127.0.0.1:8080
+direct       : http://127.0.0.1:8090
+model        : llmsim-small
+duration/arm : 90s
+arrival rate : 25 req/s per arm
+measured as  : time to first response byte (see file header)
+
+Hardware and OS are recorded by bench/run.sh in the .meta.json
+beside this run. A latency figure without that stanza is unusable.
+
+
+Time to first token
+quantile        direct       gateway         delta
+------------------------------------------------------------------------
+p50          282.20 ms     286.42 ms       4.22 ms
+p95          814.09 ms     821.93 ms       7.83 ms
+p99         1311.64 ms    1312.41 ms       0.76 ms
+mean         352.39 ms     357.29 ms       4.90 ms
+------------------------------------------------------------------------
+samples           2251          2251
+
+Generation time after the first byte (this is llmsim, not the gateway)
+quantile        direct       gateway         delta
+------------------------------------------------------------------------
+p50          215.70 ms     216.27 ms       0.57 ms
+p95          259.76 ms     277.21 ms      17.45 ms
+mean         221.29 ms     225.90 ms       4.61 ms
+------------------------------------------------------------------------
+mean frames per stream : 41.0
+
+Reading this
+------------------------------------------------------------------------
+The absolute TTFT figures are a property of the profile llmsim is
+replaying. They are NOT any provider's real time to first token,
+and quoting them as such would be a lie about a service that was
+never called. The delta column is the part that is about Penstock.
+
+The mean delta subtracts exactly. The per quantile deltas are
+differences of quantiles and do not describe any single request:
+see the same note in gateway_overhead.js.
+
+At TIME_SCALE=1 the simulated TTFT is hundreds of milliseconds and
+the gateway's contribution sits near the timer noise floor. Rerun
+with a small TIME_SCALE to resolve it; the absolute numbers then
+stop being profile realistic, which is the trade being made.

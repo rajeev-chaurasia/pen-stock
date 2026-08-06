@@ -9,6 +9,12 @@ from.
 The semantic tier answers a request that is *similar* to one already
 seen. It is off by default. This page explains why, with the numbers.
 
+A larger study has since confirmed this over 257 labelled probes. See
+[cache-quality.md](cache-quality.md) for the full threshold sweep. The
+short version: a paraphrase outscores its own opposite only 39 percent
+of the time, and at the 0.95 floor this gateway ships, 44 percent of
+semantic hits answered a question with the opposite meaning.
+
 ## The measurement
 
 Embedding questions with a current model and comparing them by cosine
