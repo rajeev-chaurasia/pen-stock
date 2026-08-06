@@ -19,6 +19,7 @@ import (
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/admin"
 	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
+	"github.com/rajeev-chaurasia/pen-stock/internal/cache"
 	"github.com/rajeev-chaurasia/pen-stock/internal/config"
 	"github.com/rajeev-chaurasia/pen-stock/internal/ingress"
 	"github.com/rajeev-chaurasia/pen-stock/internal/obs"
@@ -94,6 +95,7 @@ func run() error {
 
 	metrics := obs.NewMetrics()
 	gateway := ingress.NewServer(cfg.Server, routes, log,
+		ingress.WithCache(buildCache(cfg, metrics, log)),
 		ingress.WithAccounting(accounting.requestPath()),
 		ingress.WithMetrics(metrics),
 		ingress.WithClientKeys(cfg.Auth.ClientKeys),
@@ -318,6 +320,42 @@ func modelKinds(cfg *config.Config) func(string) string {
 		kindOf[route.Model] = string(byName[chain[0]])
 	}
 	return func(model string) string { return kindOf[model] }
+}
+
+// buildCache assembles the cache tiers from config, or returns nil when
+// caching is off. The semantic tier is built only when it has an
+// embedder to work with, since a similarity search with no vectors is
+// just a slower miss.
+func buildCache(cfg *config.Config, metrics *obs.Metrics, log *slog.Logger) *cache.Lookup {
+	if !cfg.Cache.Enabled {
+		return nil
+	}
+	onEvent := func(e cache.Event) { metrics.AddCacheEvent(string(e)) }
+
+	opts := cache.LookupOptions{
+		Exact: cache.NewExact(cache.ExactOptions{
+			MaxEntries: cfg.Cache.MaxEntries,
+			TTL:        time.Duration(cfg.Cache.TTLSeconds) * time.Second,
+			OnEvent:    onEvent,
+		}),
+		MaxTemperature: cfg.Cache.MaxTemperature,
+		OnEvent:        onEvent,
+	}
+
+	if sem := cfg.Cache.Semantic; sem.Enabled {
+		opts.Embedder = cache.NewGeminiEmbedder(sem.EmbedURL, sem.EmbedAPIKey, sem.EmbedModel, nil)
+		opts.Semantic = cache.NewSemantic(cache.SemanticOptions{
+			Threshold:    sem.Threshold,
+			MaxPerTenant: sem.MaxPerTenant,
+			TTL:          time.Duration(cfg.Cache.TTLSeconds) * time.Second,
+			OnEvent:      onEvent,
+		})
+		log.Info("semantic cache enabled",
+			"threshold", sem.Threshold,
+			"embed_model", sem.EmbedModel,
+		)
+	}
+	return cache.NewLookup(opts)
 }
 
 // tenantKeys indexes every tenant's keys by tenant name. Config permits

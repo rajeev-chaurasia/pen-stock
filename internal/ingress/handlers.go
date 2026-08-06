@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
+	"github.com/rajeev-chaurasia/pen-stock/internal/cache"
 	"github.com/rajeev-chaurasia/pen-stock/internal/httperr"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
@@ -86,6 +87,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	info.provider = prov.Name()
 
+	// The cache is consulted before accounting, because a hit calls no
+	// provider and so has no cost to reserve against. A tenant at its
+	// spend cap can still be served an answer the gateway already has,
+	// which is the behavior an operator wants: the cap exists to bound
+	// what gets spent, not to withhold what was already paid for.
+	// Concurrency is still bounded by the in flight limit above.
+	cacheRes := s.cache.Get(r.Context(), info.tenant, envelope.Model, body)
+	if cacheRes.Entry != nil && s.serveCached(w, r, cacheRes) {
+		return
+	}
+
 	// Budget is claimed before the upstream is called, because a limit
 	// checked after the money is spent is not a limit.
 	var reservation *budget.Reservation
@@ -101,10 +113,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	req := &providers.ChatRequest{Model: envelope.Model, Stream: envelope.Stream, Raw: body}
 	if envelope.Stream {
-		s.serveStream(w, r, prov, req, reservation)
+		s.serveStream(w, r, prov, req, reservation, cacheRes)
 		return
 	}
-	s.serveChat(w, r, prov, req, reservation)
+	s.serveChat(w, r, prov, req, reservation, cacheRes)
 }
 
 // settleOrAbort closes out a reservation exactly once: with the real
@@ -123,7 +135,7 @@ func (s *Server) settleOrAbort(ctx context.Context, res *budget.Reservation, usa
 	s.metrics.AddCost(string(res.Tenant), provider, model, usd)
 }
 
-func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation) {
+func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation, cacheRes cache.Result) {
 	ctx := r.Context()
 	if timeout := msToDuration(s.cfg.UpstreamTimeoutMS); timeout > 0 {
 		var cancel context.CancelFunc
@@ -145,6 +157,17 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 	logInfoFrom(r.Context()).provider = answered
 	s.metrics.AddTokens(answered, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	s.settleOrAbort(r.Context(), res, &resp.Usage, req.Model, answered)
+
+	// Stored after settling, so a cached answer carries the cost of the
+	// call that produced it and a later hit can report what it avoided.
+	s.cache.Put(r.Context(), cacheRes, &cache.Entry{
+		Body:     resp.Body,
+		Usage:    resp.Usage,
+		Provider: answered,
+		Model:    req.Model,
+		StoredAt: time.Now(),
+	}, req.Raw)
+
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", headerNoSniff)
 	w.WriteHeader(http.StatusOK)
@@ -156,7 +179,7 @@ type recvResult struct {
 	err   error
 }
 
-func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation) {
+func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation, cacheRes cache.Result) {
 	flusher := flusherFor(w)
 	if flusher == nil {
 		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
@@ -229,10 +252,25 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	// at the end, some repeat cumulative totals on every chunk. Keeping
 	// only the last report and recording it at stream end is correct for
 	// both, where summing would multiply the count.
+	// Frames are collected so a completed stream can be replayed later.
+	// Only a stream that finished cleanly is stored: see the [DONE]
+	// branch below.
+	var recorder streamRecorder
+	var completed bool
+
 	var lastUsage *providers.Usage
 	defer func() {
 		if lastUsage != nil {
 			s.metrics.AddTokens(answered, lastUsage.PromptTokens, lastUsage.CompletionTokens)
+		}
+		if completed {
+			usage := providers.Usage{}
+			if lastUsage != nil {
+				usage = *lastUsage
+			}
+			if entry := recorder.entry(answered, req.Model, &cache.Entry{Usage: usage}); entry != nil {
+				s.cache.Put(context.WithoutCancel(r.Context()), cacheRes, entry, req.Raw)
+			}
 		}
 		// A stream that ended without ever reporting usage produced no
 		// billable evidence, so the claim goes back rather than being
@@ -245,6 +283,10 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		select {
 		case res := <-results:
 			if res.err != nil {
+				// Only a stream the upstream actually finished may be
+				// remembered. Storing a truncated one would replay a
+				// partial answer forever as though it were whole.
+				completed = errors.Is(res.err, io.EOF)
 				s.finishStream(w, flusher, answered, res.err)
 				return
 			}
@@ -275,6 +317,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 				if err := writeSSEFrame(w, res.chunk.Data); err != nil {
 					return
 				}
+				recorder.add(res.chunk.Data)
 			}
 			flusher.Flush()
 			if idleTimer != nil {

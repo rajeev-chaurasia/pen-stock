@@ -41,6 +41,12 @@ const MaxTimeoutMS int = 3600000
 // MinClientKeyLength is the shortest client key worth calling a secret.
 const MinClientKeyLength = 16
 
+// MinSemanticThreshold is the loosest similarity the loader will accept.
+// A false hit is a confidently wrong answer nobody traces back to the
+// cache, while a miss costs one ordinary API call, so the floor sits
+// well above where paraphrases start blurring into opposites.
+const MinSemanticThreshold = 0.80
+
 // isLoopbackListen reports whether addr binds only the loopback
 // interface. An empty or wildcard host reaches every interface.
 func isLoopbackListen(addr string) bool {
@@ -104,7 +110,7 @@ func Load(path string) (*Config, error) {
 // secret. Client and tenant keys get the same treatment as provider keys
 // because they are what stands between a caller and the provider keys.
 func (c *Config) expandSecrets() error {
-	return errors.Join(c.expandAPIKeys(), c.expandClientKeys(), c.expandTenantKeys())
+	return errors.Join(c.expandAPIKeys(), c.expandClientKeys(), c.expandTenantKeys(), c.expandCacheKey())
 }
 
 // expandEnvRefs replaces every ${VAR} in s with its value. A variable
@@ -135,6 +141,16 @@ func (c *Config) expandClientKeys() error {
 		c.Auth.ClientKeys[i] = expanded
 		errs = append(errs, refErrs...)
 	}
+	return errors.Join(errs...)
+}
+
+// expandCacheKey resolves the embedder credential, which is a provider
+// key like any other and must not sit in the config file either.
+func (c *Config) expandCacheKey() error {
+	expanded, errs := expandEnvRefs(c.Cache.Semantic.EmbedAPIKey, func(varName string) error {
+		return fmt.Errorf("cache: semantic.embed_api_key references %s, which is unset or empty: %w", varName, ErrMissingEnv)
+	})
+	c.Cache.Semantic.EmbedAPIKey = expanded
 	return errors.Join(errs...)
 }
 
@@ -300,6 +316,31 @@ func (c *Config) Validate() error {
 			add("server: %s is %d; a negative timeout disables the deadline entirely, use a positive value or omit the field for the default", tmo.name, tmo.value)
 		case tmo.value > MaxTimeoutMS:
 			add("server: %s is %d, must be at most %d (one hour); values are milliseconds", tmo.name, tmo.value, MaxTimeoutMS)
+		}
+	}
+
+	if c.Cache.Enabled {
+		if c.Cache.MaxEntries < 0 {
+			add("cache: max_entries is %d, must not be negative", c.Cache.MaxEntries)
+		}
+		if c.Cache.TTLSeconds < 0 {
+			add("cache: ttl_seconds is %d, must not be negative", c.Cache.TTLSeconds)
+		}
+		if c.Cache.MaxTemperature < 0 {
+			add("cache: max_temperature is %v, must not be negative", c.Cache.MaxTemperature)
+		}
+		if sem := c.Cache.Semantic; sem.Enabled {
+			if sem.EmbedAPIKey == "" {
+				add("cache: semantic.embed_api_key is required when semantic caching is on")
+			}
+			// A threshold this low stops meaning "the same question".
+			if sem.Threshold != 0 && (sem.Threshold < MinSemanticThreshold || sem.Threshold > 1) {
+				add("cache: semantic.threshold is %v, must be between %v and 1; below that a neighbour is not the same question and the cache starts answering something nobody asked",
+					sem.Threshold, MinSemanticThreshold)
+			}
+			if sem.MaxPerTenant < 0 {
+				add("cache: semantic.max_per_tenant is %d, must not be negative", sem.MaxPerTenant)
+			}
 		}
 	}
 

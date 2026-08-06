@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/rajeev-chaurasia/pen-stock/internal/cache"
 	"github.com/rajeev-chaurasia/pen-stock/internal/config"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
@@ -35,6 +36,7 @@ type Server struct {
 	clientKeys *keySet
 	inflight   *inflight
 	accounting Accountant
+	cache      *cache.Lookup
 	handler    http.Handler
 }
 
@@ -73,6 +75,13 @@ func WithTenantKeys(byTenant map[string][]string) Option {
 // WithInflightLimit caps concurrent in flight requests.
 func WithInflightLimit(limit int) Option {
 	return func(s *Server) { s.inflight = newInflight(limit) }
+}
+
+// WithCache serves repeated questions from a previous answer. The
+// lookup reports its own outcomes through the callback it was built
+// with, so the ingress never has to relay them.
+func WithCache(l *cache.Lookup) Option {
+	return func(s *Server) { s.cache = l }
 }
 
 // WithAccounting enforces per tenant budgets and rate limits. Without
@@ -160,6 +169,7 @@ type logInfo struct {
 	provider string
 	tenant   string
 	stream   bool
+	cached   bool
 }
 
 func logInfoFrom(ctx context.Context) *logInfo {
@@ -204,6 +214,7 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 				"model", info.model,
 				"provider", info.provider,
 				"tenant", info.tenant,
+				"cached", info.cached,
 				"status", sw.Status(),
 				"duration_ms", elapsed.Milliseconds(),
 				"stream", info.stream,

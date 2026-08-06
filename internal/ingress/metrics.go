@@ -12,6 +12,8 @@ type MetricsSink interface {
 	AddCost(tenant, provider, model string, usd float64)
 	// AddDenial records a request refused by a tenant limit.
 	AddDenial(tenant, reason string)
+	// AddCacheEvent records a cache hit, miss, or policy refusal.
+	AddCacheEvent(event string)
 }
 
 // streamAnswerer is implemented by a stream reader that knows which
@@ -46,6 +48,7 @@ func (noopSink) ObserveTTFT(string, float64)                          {}
 func (noopSink) AddTokens(string, int, int)                           {}
 func (noopSink) AddCost(string, string, string, float64)              {}
 func (noopSink) AddDenial(string, string)                             {}
+func (noopSink) AddCacheEvent(string)                                 {}
 
 // knownPaths bounds the path label so unmatched URLs cannot explode
 // metric cardinality.

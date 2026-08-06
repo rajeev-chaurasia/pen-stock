@@ -37,9 +37,47 @@ type Config struct {
 	Server     ServerConfig     `yaml:"server"`
 	Auth       AuthConfig       `yaml:"auth"`
 	Accounting AccountingConfig `yaml:"accounting"`
+	Cache      CacheConfig      `yaml:"cache"`
 	Providers  []ProviderConfig `yaml:"providers"`
 	Routes     []RouteConfig    `yaml:"routes"`
 	Telemetry  TelemetryConfig  `yaml:"telemetry"`
+}
+
+// CacheConfig controls answering a request from a previous one.
+// Disabled by default: a cache is a correctness decision as much as a
+// performance one, so it is opted into rather than inherited.
+type CacheConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// MaxEntries bounds the exact tier per gateway. Zero takes a
+	// documented default rather than meaning unlimited, since an
+	// unbounded cache is a memory leak with a friendly name.
+	MaxEntries int `yaml:"max_entries"`
+	// TTLSeconds is how long an answer stays usable.
+	TTLSeconds int `yaml:"ttl_seconds"`
+	// MaxTemperature is the highest temperature considered reproducible
+	// enough to cache. Above it a caller asked for variety, and serving
+	// a stored answer would quietly override them.
+	MaxTemperature float64 `yaml:"max_temperature"`
+	// Semantic answers a question close to one already asked. It needs
+	// an embedder, and it is the tier that can be wrong, so it is a
+	// separate switch from the exact tier.
+	Semantic SemanticCacheConfig `yaml:"semantic"`
+}
+
+// SemanticCacheConfig configures similarity matching.
+type SemanticCacheConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Threshold is the cosine similarity below which a neighbour is not
+	// considered the same question. Lower means more hits and more
+	// chances to answer something that was never asked.
+	Threshold float64 `yaml:"threshold"`
+	// EmbedModel and EmbedAPIKey reach the embedding service. The key
+	// supports ${ENV_VAR} like every other secret in this file.
+	EmbedModel  string `yaml:"embed_model"`
+	EmbedAPIKey string `yaml:"embed_api_key"`
+	EmbedURL    string `yaml:"embed_url"`
+	// MaxPerTenant bounds stored vectors per tenant.
+	MaxPerTenant int `yaml:"max_per_tenant"`
 }
 
 // AccountingConfig controls the record of what was spent, as opposed to

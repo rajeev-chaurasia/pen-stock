@@ -28,6 +28,14 @@ func (m *Metrics) AddDenial(tenant, reason string) {
 	m.DenialsTotal.WithLabelValues(labelOrNone(tenant), reason).Inc()
 }
 
+// AddCacheEvent records a cache outcome. Hits, misses and refusals are
+// separate events on purpose: a low hit rate caused by policy correctly
+// refusing to cache is a different problem from one caused by the cache
+// never seeing a repeat.
+func (m *Metrics) AddCacheEvent(event string) {
+	m.CacheEventsTotal.WithLabelValues(event).Inc()
+}
+
 // labelOrNone keeps an anonymous caller from producing an empty label,
 // which reads as missing data rather than as a request with no tenant.
 func labelOrNone(tenant string) string {

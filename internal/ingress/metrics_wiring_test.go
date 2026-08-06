@@ -15,12 +15,13 @@ import (
 )
 
 type recordingSink struct {
-	mu       sync.Mutex
-	requests []string
-	ttft     []string
-	tokens   []string
-	costs    []string
-	denials  []string
+	mu          sync.Mutex
+	requests    []string
+	ttft        []string
+	tokens      []string
+	costs       []string
+	denials     []string
+	cacheEvents []string
 }
 
 func (s *recordingSink) AddCost(tenant, provider, model string, usd float64) {
@@ -33,6 +34,18 @@ func (s *recordingSink) AddDenial(tenant, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.denials = append(s.denials, tenant+"|"+reason)
+}
+
+func (s *recordingSink) AddCacheEvent(event string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cacheEvents = append(s.cacheEvents, event)
+}
+
+func (s *recordingSink) cacheEventSnapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.cacheEvents...)
 }
 
 func (s *recordingSink) costSnapshot() (costs, denials []string) {
