@@ -2,13 +2,26 @@
 # Copy to config.yaml and adjust for your environment.
 
 server:
-  # Address the gateway listens on.
-  listen: ":8080"
+  # Loopback by default. Binding a wider address without auth.client_keys
+  # below is rejected at load time, because any caller who reaches this
+  # port spends the provider keys configured further down.
+  listen: "127.0.0.1:8080"
+  # Metrics listener. Token spend and latency profiles are operator data,
+  # so this stays off the address callers use.
+  admin_listen: "127.0.0.1:9090"
+  # Concurrent requests allowed before the gateway sheds load with a 503.
+  max_inflight: 256
   # All timeouts are in milliseconds.
   read_timeout_ms: 30000
   upstream_timeout_ms: 120000
   # How long a streaming response may sit idle before the gateway gives up.
   stream_idle_timeout_ms: 60000
+
+auth:
+  # Keys callers must present as "Authorization: Bearer <key>". Leave the
+  # list empty only while listening on loopback. Generate real ones with
+  # something like: openssl rand -hex 32
+  client_keys: []
 
 providers:
   # Groq's OpenAI-compatible API. api_key supports ${ENV_VAR} references,

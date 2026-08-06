@@ -1,5 +1,5 @@
 server:
-  listen: ":9090"
+  listen: "127.0.0.1:9090"
   read_timeout_ms: 1000
   upstream_timeout_ms: 2000
   stream_idle_timeout_ms: 3000

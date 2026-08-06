@@ -19,7 +19,7 @@ func TestLoadValid(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if got, want := cfg.Server.Listen, ":9090"; got != want {
+	if got, want := cfg.Server.Listen, "127.0.0.1:9090"; got != want {
 		t.Errorf("Listen = %q, want %q", got, want)
 	}
 	if got, want := cfg.Server.ReadTimeoutMS, 1000; got != want {

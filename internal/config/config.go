@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -19,18 +20,39 @@ var ErrMissingEnv = errors.New("environment variable not set")
 
 // Defaults applied by Load when the corresponding field is absent.
 const (
-	DefaultListen              = ":8080"
+	// DefaultListen is loopback on purpose. Reaching a wider audience is
+	// a deliberate act that requires configuring auth.client_keys first.
+	DefaultListen              = "127.0.0.1:8080"
 	DefaultReadTimeoutMS       = 30000
 	DefaultUpstreamTimeoutMS   = 120000
 	DefaultStreamIdleTimeoutMS = 60000
 	DefaultServiceName         = "penstock"
 	DefaultLogLevel            = LogLevelInfo
+	DefaultAdminListen         = "127.0.0.1:9090"
+	DefaultMaxInflight         = 256
 )
 
 // MaxTimeoutMS caps every *_timeout_ms field at one hour. Larger values
 // are almost certainly a unit mistake and would leave connections pinned
 // long past any sane deadline.
 const MaxTimeoutMS int = 3600000
+
+// MinClientKeyLength is the shortest client key worth calling a secret.
+const MinClientKeyLength = 16
+
+// isLoopbackListen reports whether addr binds only the loopback
+// interface. An empty or wildcard host reaches every interface.
+func isLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 // Accepted telemetry log levels.
 const (
@@ -99,6 +121,12 @@ func (c *Config) applyDefaults() {
 	if c.Server.StreamIdleTimeoutMS == 0 {
 		c.Server.StreamIdleTimeoutMS = DefaultStreamIdleTimeoutMS
 	}
+	if c.Server.AdminListen == "" {
+		c.Server.AdminListen = DefaultAdminListen
+	}
+	if c.Server.MaxInflight == 0 {
+		c.Server.MaxInflight = DefaultMaxInflight
+	}
 	if c.Telemetry.ServiceName == "" {
 		c.Telemetry.ServiceName = DefaultServiceName
 	}
@@ -131,6 +159,21 @@ func (c *Config) Validate() error {
 			add("server: %s is %d; a negative timeout disables the deadline entirely, use a positive value or omit the field for the default", tmo.name, tmo.value)
 		case tmo.value > MaxTimeoutMS:
 			add("server: %s is %d, must be at most %d (one hour); values are milliseconds", tmo.name, tmo.value, MaxTimeoutMS)
+		}
+	}
+
+	if c.Server.MaxInflight < 0 {
+		add("server: max_inflight is %d, must not be negative", c.Server.MaxInflight)
+	}
+
+	// An unauthenticated gateway is an open door to a paid API key, so
+	// it may only listen where nobody else can reach it.
+	if len(c.Auth.ClientKeys) == 0 && !isLoopbackListen(c.Server.Listen) {
+		add("auth: no client_keys are configured, so server.listen must stay on loopback (127.0.0.1 or localhost), got %q; without keys any caller reaching this address spends the configured provider keys", c.Server.Listen)
+	}
+	for i, key := range c.Auth.ClientKeys {
+		if len(key) < MinClientKeyLength {
+			add("auth: client_keys[%d] is shorter than %d characters and is too weak to guard a paid key", i, MinClientKeyLength)
 		}
 	}
 

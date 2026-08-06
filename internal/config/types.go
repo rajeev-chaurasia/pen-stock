@@ -12,6 +12,7 @@ const (
 
 type Config struct {
 	Server    ServerConfig     `yaml:"server"`
+	Auth      AuthConfig       `yaml:"auth"`
 	Providers []ProviderConfig `yaml:"providers"`
 	Routes    []RouteConfig    `yaml:"routes"`
 	Telemetry TelemetryConfig  `yaml:"telemetry"`
@@ -22,6 +23,21 @@ type ServerConfig struct {
 	ReadTimeoutMS       int    `yaml:"read_timeout_ms"`
 	UpstreamTimeoutMS   int    `yaml:"upstream_timeout_ms"`
 	StreamIdleTimeoutMS int    `yaml:"stream_idle_timeout_ms"`
+	// AdminListen serves metrics and other operator surfaces. It stays
+	// off the public listener because token spend and latency profiles
+	// are not callers' business.
+	AdminListen string `yaml:"admin_listen"`
+	// MaxInflight bounds concurrent requests. Each one can hold a
+	// request body plus an upstream response, so no bound means no
+	// memory ceiling.
+	MaxInflight int `yaml:"max_inflight"`
+}
+
+// AuthConfig lists the keys callers must present as a bearer token.
+// With no keys the gateway serves anyone who can reach it, which is
+// why Validate refuses that combination on a non-loopback listener.
+type AuthConfig struct {
+	ClientKeys []string `yaml:"client_keys"`
 }
 
 type ProviderConfig struct {
