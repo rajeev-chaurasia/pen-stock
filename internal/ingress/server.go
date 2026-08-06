@@ -34,6 +34,7 @@ type Server struct {
 	metrics    MetricsSink
 	clientKeys *keySet
 	inflight   *inflight
+	accounting Accountant
 	handler    http.Handler
 }
 
@@ -72,6 +73,16 @@ func WithTenantKeys(byTenant map[string][]string) Option {
 // WithInflightLimit caps concurrent in flight requests.
 func WithInflightLimit(limit int) Option {
 	return func(s *Server) { s.inflight = newInflight(limit) }
+}
+
+// WithAccounting enforces per tenant budgets and rate limits. Without
+// it the gateway serves every authenticated caller without metering.
+func WithAccounting(a Accountant) Option {
+	return func(s *Server) {
+		if a != nil {
+			s.accounting = a
+		}
+	}
 }
 
 // NewServer builds the ingress. routes maps a model id to the provider

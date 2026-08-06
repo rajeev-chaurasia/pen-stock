@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
@@ -82,15 +83,43 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	info.provider = prov.Name()
 
+	// Budget is claimed before the upstream is called, because a limit
+	// checked after the money is spent is not a limit.
+	var reservation *budget.Reservation
+	if s.accounting != nil {
+		var err error
+		reservation, err = s.accounting.Begin(r.Context(),
+			budget.TenantID(info.tenant), envelope.Model, body)
+		if err != nil {
+			s.writeDenial(w, err)
+			return
+		}
+	}
+
 	req := &providers.ChatRequest{Model: envelope.Model, Stream: envelope.Stream, Raw: body}
 	if envelope.Stream {
-		s.serveStream(w, r, prov, req)
+		s.serveStream(w, r, prov, req, reservation)
 		return
 	}
-	s.serveChat(w, r, prov, req)
+	s.serveChat(w, r, prov, req, reservation)
 }
 
-func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest) {
+// settleOrAbort closes out a reservation exactly once: with the real
+// usage when the upstream answered, and by returning the claim when it
+// produced nothing. Leaving it open would strand the estimate against
+// the tenant until it expired.
+func (s *Server) settleOrAbort(ctx context.Context, res *budget.Reservation, usage *providers.Usage, model, provider string) {
+	if s.accounting == nil || res == nil {
+		return
+	}
+	if usage == nil {
+		s.accounting.Abort(ctx, res)
+		return
+	}
+	s.accounting.Settle(ctx, res, *usage, model, provider)
+}
+
+func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation) {
 	ctx := r.Context()
 	if timeout := msToDuration(s.cfg.UpstreamTimeoutMS); timeout > 0 {
 		var cancel context.CancelFunc
@@ -100,6 +129,8 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 
 	resp, err := prov.Chat(ctx, req)
 	if err != nil {
+		// Nothing was produced, so nothing is owed.
+		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
 		s.writeUpstreamError(w, err)
 		return
 	}
@@ -109,6 +140,7 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 	answered := answeringProvider(prov.Name(), resp.Provider)
 	logInfoFrom(r.Context()).provider = answered
 	s.metrics.AddTokens(answered, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	s.settleOrAbort(r.Context(), res, &resp.Usage, req.Model, answered)
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", headerNoSniff)
 	w.WriteHeader(http.StatusOK)
@@ -120,9 +152,10 @@ type recvResult struct {
 	err   error
 }
 
-func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest) {
+func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation) {
 	flusher := flusherFor(w)
 	if flusher == nil {
+		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
 		writeErrorJSON(w, http.StatusInternalServerError,
 			"streaming is not supported by this server", errTypeAPI, "streaming_unsupported")
 		return
@@ -148,6 +181,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 
 	reader, err := prov.ChatStream(ctx, req)
 	if err != nil {
+		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
 		if headerTimedOut.Load() {
 			err = &providers.ProviderError{
 				Provider: prov.Name(),
@@ -196,6 +230,11 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		if lastUsage != nil {
 			s.metrics.AddTokens(answered, lastUsage.PromptTokens, lastUsage.CompletionTokens)
 		}
+		// A stream that ended without ever reporting usage produced no
+		// billable evidence, so the claim goes back rather than being
+		// settled at a number nobody measured. Settling on the estimate
+		// instead would bill a guess.
+		s.settleOrAbort(context.WithoutCancel(r.Context()), res, lastUsage, req.Model, answered)
 	}()
 
 	for {

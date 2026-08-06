@@ -275,18 +275,28 @@ func checkBudgets(st *tenantState, limits Limits, est Estimate) *Denial {
 	if limits.DailyUSD > 0 && st.dailySpent+st.committed+est.USD > limits.DailyUSD {
 		return &Denial{
 			Reason: DenyDailyBudget,
-			Message: fmt.Sprintf("this request would exceed the daily budget of %.2f USD",
-				limits.DailyUSD),
+			Message: fmt.Sprintf("this request would exceed the daily budget of %s USD",
+				formatUSD(limits.DailyUSD)),
 		}
 	}
 	if limits.MonthlyUSD > 0 && st.monthlySpent+st.committed+est.USD > limits.MonthlyUSD {
 		return &Denial{
 			Reason: DenyMonthlyBudget,
-			Message: fmt.Sprintf("this request would exceed the monthly budget of %.2f USD",
-				limits.MonthlyUSD),
+			Message: fmt.Sprintf("this request would exceed the monthly budget of %s USD",
+				formatUSD(limits.MonthlyUSD)),
 		}
 	}
 	return nil
+}
+
+// formatUSD renders an amount readably at both ends of the range. Cents
+// are the usual case, but a sub cent budget shown as 0.00 tells an
+// operator their limit is zero when it is merely small.
+func formatUSD(v float64) string {
+	if v > 0 && v < 0.01 {
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	}
+	return strconv.FormatFloat(v, 'f', 2, 64)
 }
 
 // remainingIn reports how long the current window has left, floored at

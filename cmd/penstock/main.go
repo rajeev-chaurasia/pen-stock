@@ -17,9 +17,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
 	"github.com/rajeev-chaurasia/pen-stock/internal/config"
 	"github.com/rajeev-chaurasia/pen-stock/internal/ingress"
 	"github.com/rajeev-chaurasia/pen-stock/internal/obs"
+	"github.com/rajeev-chaurasia/pen-stock/internal/pricing"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 	"github.com/rajeev-chaurasia/pen-stock/internal/router"
 
@@ -83,8 +85,14 @@ func run() error {
 		return err
 	}
 
+	accounting, err := buildAccounting(cfg, modelKinds(cfg))
+	if err != nil {
+		return err
+	}
+
 	metrics := obs.NewMetrics()
 	gateway := ingress.NewServer(cfg.Server, routes, log,
+		ingress.WithAccounting(accounting),
 		ingress.WithMetrics(metrics),
 		ingress.WithClientKeys(cfg.Auth.ClientKeys),
 		ingress.WithTenantKeys(tenantKeys(cfg)),
@@ -182,6 +190,57 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 		routes[route.Model] = routed
 	}
 	return routes, nil
+}
+
+// buildAccounting turns tenant limits into an enforcer, or returns nil
+// when no tenant declares a limit worth enforcing. A gateway without
+// budgeting must still serve, so nil here means metering is off rather
+// than being an error.
+func buildAccounting(cfg *config.Config, kindOf func(string) string) (ingress.Accountant, error) {
+	limits := make(map[budget.TenantID]budget.Limits, len(cfg.Auth.Tenants))
+	for _, t := range cfg.Auth.Tenants {
+		limits[budget.TenantID(t.Name)] = budget.Limits{
+			RequestsPerMinute: t.Limits.RequestsPerMinute,
+			TokensPerMinute:   t.Limits.TokensPerMinute,
+			DailyUSD:          t.Limits.DailyUSD,
+			MonthlyUSD:        t.Limits.MonthlyUSD,
+			FailClosed:        t.Limits.FailClosed,
+		}
+	}
+	if len(limits) == 0 {
+		return nil, nil
+	}
+
+	prices, err := pricing.DefaultTable()
+	if err != nil {
+		return nil, fmt.Errorf("load price table: %w", err)
+	}
+	return budget.NewGuard(budget.GuardOptions{
+		Estimator: budget.NewEstimator(prices, kindOf, budget.EstimatorOptions{}),
+		Enforcer:  budget.NewEnforcer(limits, nil),
+		Prices:    prices,
+		KindOf:    kindOf,
+	}), nil
+}
+
+// modelKinds maps each routed model to the kind of the first provider
+// serving it, which is what the price table is keyed by. A fallback
+// chain can span vendors, so this is the price the route is expected to
+// be billed at rather than a guarantee.
+func modelKinds(cfg *config.Config) func(string) string {
+	kindOf := make(map[string]string, len(cfg.Routes))
+	byName := make(map[string]config.ProviderKind, len(cfg.Providers))
+	for _, p := range cfg.Providers {
+		byName[p.Name] = p.Kind
+	}
+	for _, route := range cfg.Routes {
+		chain := route.Chain()
+		if len(chain) == 0 {
+			continue
+		}
+		kindOf[route.Model] = string(byName[chain[0]])
+	}
+	return func(model string) string { return kindOf[model] }
 }
 
 // tenantKeys indexes every tenant's keys by tenant name. Config permits
