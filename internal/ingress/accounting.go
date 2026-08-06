@@ -25,13 +25,14 @@ type Accountant interface {
 // and the client is told how long. An exhausted budget is not, because
 // no amount of waiting refills it, so answering 429 there would send a
 // well behaved client into a retry loop that can never succeed.
-func (s *Server) writeDenial(w http.ResponseWriter, err error) {
+func (s *Server) writeDenial(w http.ResponseWriter, tenant string, err error) {
 	var d *budget.Denial
 	if !errors.As(err, &d) {
 		writeErrorJSON(w, http.StatusInternalServerError,
 			"internal error", errTypeAPI, "internal")
 		return
 	}
+	s.metrics.AddDenial(tenant, string(d.Reason))
 
 	if d.RetryAfter > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(int(d.RetryAfter.Seconds()+1)))

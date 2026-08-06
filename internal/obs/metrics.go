@@ -31,6 +31,14 @@ type Metrics struct {
 	TTFTSeconds            *prometheus.HistogramVec
 	TokensTotal            *prometheus.CounterVec
 	CacheEventsTotal       *prometheus.CounterVec
+	// CostUSDTotal is the money side of the same traffic the counters
+	// above measure. Tokens tell an operator how busy the gateway is;
+	// only this tells them what it is costing.
+	CostUSDTotal *prometheus.CounterVec
+	// DenialsTotal counts refusals by the limit that refused, which is
+	// how an operator tells a tenant hitting its ceiling apart from one
+	// being rate limited.
+	DenialsTotal *prometheus.CounterVec
 }
 
 // NewMetrics builds and registers every instrument on a fresh registry.
@@ -55,6 +63,14 @@ func NewMetrics() *Metrics {
 			Name: "penstock_tokens_total",
 			Help: "Tokens processed, by provider and direction (prompt or completion).",
 		}, []string{"provider", "direction"}),
+		CostUSDTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "penstock_cost_usd_total",
+			Help: "Settled cost in USD, by tenant, provider, and model.",
+		}, []string{"tenant", "provider", "model"}),
+		DenialsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "penstock_denials_total",
+			Help: "Requests refused by a tenant limit, by tenant and reason.",
+		}, []string{"tenant", "reason"}),
 		CacheEventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "penstock_cache_events_total",
 			Help: "Cache events by type. Registered ahead of the caching phase.",
@@ -65,6 +81,8 @@ func NewMetrics() *Metrics {
 		m.RequestDurationSeconds,
 		m.TTFTSeconds,
 		m.TokensTotal,
+		m.CostUSDTotal,
+		m.DenialsTotal,
 		m.CacheEventsTotal,
 	)
 	return m

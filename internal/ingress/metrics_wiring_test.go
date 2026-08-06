@@ -19,6 +19,26 @@ type recordingSink struct {
 	requests []string
 	ttft     []string
 	tokens   []string
+	costs    []string
+	denials  []string
+}
+
+func (s *recordingSink) AddCost(tenant, provider, model string, usd float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.costs = append(s.costs, fmt.Sprintf("%s|%s|%s|%g", tenant, provider, model, usd))
+}
+
+func (s *recordingSink) AddDenial(tenant, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.denials = append(s.denials, tenant+"|"+reason)
+}
+
+func (s *recordingSink) costSnapshot() (costs, denials []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.costs...), append([]string(nil), s.denials...)
 }
 
 func (s *recordingSink) ObserveRequest(path, provider, code string, seconds float64, stream bool) {

@@ -91,7 +91,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		reservation, err = s.accounting.Begin(r.Context(),
 			budget.TenantID(info.tenant), envelope.Model, body)
 		if err != nil {
-			s.writeDenial(w, err)
+			s.writeDenial(w, info.tenant, err)
 			return
 		}
 	}
@@ -116,7 +116,8 @@ func (s *Server) settleOrAbort(ctx context.Context, res *budget.Reservation, usa
 		s.accounting.Abort(ctx, res)
 		return
 	}
-	s.accounting.Settle(ctx, res, *usage, model, provider)
+	usd := s.accounting.Settle(ctx, res, *usage, model, provider)
+	s.metrics.AddCost(string(res.Tenant), provider, model, usd)
 }
 
 func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation) {

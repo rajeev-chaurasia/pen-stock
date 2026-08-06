@@ -53,6 +53,18 @@ auth:
   #     monthly_usd: 10.00
   #     fail_closed: true
 
+accounting:
+  # Where settled requests are appended, one JSON object per line, each
+  # carrying the tenant, model, tokens, cost and the price list version
+  # that produced it. Leave empty to turn the ledger off, in which case
+  # limits are still enforced but a restart forgets which requests the
+  # running totals came from.
+  #
+  # The gateway refuses to start if this path cannot be opened, because
+  # a ledger that silently cannot write looks exactly like one with
+  # nothing to record.
+  ledger_path: ""
+
 providers:
   # Groq's OpenAI-compatible API. api_key supports ${ENV_VAR} references,
   # resolved at load time, so real keys never live in this file.

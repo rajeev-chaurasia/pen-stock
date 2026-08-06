@@ -8,12 +8,15 @@ controls, and survives high-pressure flow. Same job here.
 
 ## Security status
 
-This build is for local use only. Do not expose it to the internet or to
-an untrusted network as it stands. Configuring `auth.client_keys` turns
-on bearer authentication, and the loader refuses to bind anything but
-loopback without it, but there is no per-tenant rate limiting or budget
-enforcement yet. Free provider tiers generally train on submitted
-prompts, so production or otherwise sensitive data does not belong here.
+Bearer authentication, per-tenant rate limits and per-tenant spend caps
+all work, and the loader refuses to bind anything but loopback with no
+keys configured. What is still missing before this belongs on a public
+address: tenant state lives in memory, so a restart forgets every
+window, and there is no TLS, no key rotation, and no multi-node story.
+Run it behind something that provides those.
+
+Free provider tiers generally train on submitted prompts, so production
+or otherwise sensitive data does not belong here.
 
 ## What works today
 
@@ -81,10 +84,46 @@ make build && ./bin/penstock --config config.yaml
 `llmsim`, a deterministic mock provider, ships alongside the gateway for
 development and load testing without spending quota.
 
+## Cost control
+
+Every key can belong to a tenant with its own limits:
+
+```yaml
+auth:
+  tenants:
+    - name: demo
+      keys: ["${PENSTOCK_DEMO_KEY}"]
+      requests_per_minute: 60
+      daily_usd: 1.00
+      fail_closed: true
+
+accounting:
+  ledger_path: "penstock-ledger.jsonl"
+```
+
+A request reserves an estimate before the upstream is called and settles
+the real usage after, so a limit is enforced before the money is spent
+rather than after. Reserving is atomic, so a tenant cannot be overspent
+by requests arriving together; it can still finish slightly over, by a
+bounded amount that `internal/budget` documents and a test asserts.
+
+A rate limit answers 429 with a Retry-After. An exhausted budget answers
+402 without one, because waiting does not refill it.
+
+Each settled request appends a ledger row carrying the tenant, model,
+tokens, cost and the price list version that produced it, so a figure
+can be rechecked later rather than taken on faith. `GET /admin/tenants`
+on the admin listener reports live balances.
+
+Note that many entries in the shipped price table are marked
+`# unverified`. The arithmetic is exact and the ledger reconciles with
+the running totals, but check the rates against provider pricing pages
+before trusting the absolute numbers.
+
 ## Status
 
-Phases 0 through 2 are done: ingress and streaming, the provider
-adapters, and routing. Per-tenant budgets, semantic caching, and the
+Phases 0 through 3 are done: ingress and streaming, the provider
+adapters, routing, and per-tenant cost control. Semantic caching and the
 published benchmark campaign are next.
 
 ## License

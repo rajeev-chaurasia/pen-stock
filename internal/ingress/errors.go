@@ -2,11 +2,11 @@ package ingress
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
 
+	"github.com/rajeev-chaurasia/pen-stock/internal/httperr"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
@@ -15,9 +15,12 @@ const (
 	// that disconnected before the response completed.
 	StatusClientClosedRequest = 499
 
-	errTypeInvalidRequest = "invalid_request_error"
-	errTypeRateLimit      = "rate_limit_error"
-	errTypeAPI            = "api_error"
+	// The client-facing error vocabulary is defined once in httperr, since
+	// the admin surface answers with the same envelope. These names keep
+	// this package's call sites reading as they always have.
+	errTypeInvalidRequest = httperr.TypeInvalidRequest
+	errTypeRateLimit      = httperr.TypeRateLimit
+	errTypeAPI            = httperr.TypeAPI
 
 	codeModelNotFound = "model_not_found"
 
@@ -28,6 +31,13 @@ const (
 	// maxRelayedMessage caps how much upstream text can reach a client on
 	// the one class where relaying it is useful.
 	maxRelayedMessage = 512
+)
+
+// The shared envelope under this package's historical names, so the
+// streaming path can keep composing a frame directly.
+type (
+	errorBody     = httperr.Body
+	errorEnvelope = httperr.Envelope
 )
 
 // secretPattern matches text that must never be relayed to a client:
@@ -48,24 +58,12 @@ func sanitizeUpstreamMessage(msg string) string {
 	return clean
 }
 
-type errorBody struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code"`
-}
-
-type errorEnvelope struct {
-	Error errorBody `json:"error"`
-}
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", contentTypeJSON)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httperr.WriteJSON(w, status, v)
 }
 
 func writeErrorJSON(w http.ResponseWriter, status int, message, errType, code string) {
-	writeJSON(w, status, errorEnvelope{Error: errorBody{Message: message, Type: errType, Code: code}})
+	httperr.WriteError(w, status, message, errType, code)
 }
 
 // writeUpstreamError maps a provider failure to the client-facing wire.
