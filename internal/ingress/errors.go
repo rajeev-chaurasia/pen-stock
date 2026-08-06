@@ -111,6 +111,8 @@ func classMessage(c providers.ErrorClass) string {
 	switch c {
 	case providers.ErrClassAuth:
 		return msgUpstreamAuth
+	case providers.ErrClassPaymentRequired:
+		return "the upstream account requires payment or an activated quota"
 	case providers.ErrClassRateLimited:
 		return "upstream rate limit reached"
 	case providers.ErrClassInvalidRequest:
@@ -132,6 +134,8 @@ func classToWire(c providers.ErrorClass) (status int, errType, code string) {
 	switch c {
 	case providers.ErrClassAuth:
 		return http.StatusBadGateway, errTypeAPI, "upstream_auth_failed"
+	case providers.ErrClassPaymentRequired:
+		return http.StatusPaymentRequired, errTypeAPI, "upstream_payment_required"
 	case providers.ErrClassRateLimited:
 		return http.StatusTooManyRequests, errTypeRateLimit, "rate_limited"
 	case providers.ErrClassInvalidRequest:

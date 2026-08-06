@@ -12,14 +12,20 @@ import (
 type ErrorClass string
 
 const (
-	ErrClassAuth           ErrorClass = "auth"
-	ErrClassRateLimited    ErrorClass = "rate_limited"
-	ErrClassInvalidRequest ErrorClass = "invalid_request"
-	ErrClassModelNotFound  ErrorClass = "model_not_found"
-	ErrClassUpstream       ErrorClass = "upstream_unavailable"
-	ErrClassTimeout        ErrorClass = "timeout"
-	ErrClassCanceled       ErrorClass = "canceled"
-	ErrClassInternal       ErrorClass = "internal"
+	ErrClassAuth ErrorClass = "auth"
+	// ErrClassPaymentRequired means the account cannot pay for the call:
+	// out of credit, or a tier that was never activated. Distinct from
+	// rate limiting because waiting does not fix it, and distinct from
+	// auth because the credentials are fine. A router should fail over
+	// rather than retry the same provider.
+	ErrClassPaymentRequired ErrorClass = "payment_required"
+	ErrClassRateLimited     ErrorClass = "rate_limited"
+	ErrClassInvalidRequest  ErrorClass = "invalid_request"
+	ErrClassModelNotFound   ErrorClass = "model_not_found"
+	ErrClassUpstream        ErrorClass = "upstream_unavailable"
+	ErrClassTimeout         ErrorClass = "timeout"
+	ErrClassCanceled        ErrorClass = "canceled"
+	ErrClassInternal        ErrorClass = "internal"
 )
 
 // ProviderError wraps any failure crossing the provider boundary.
@@ -67,6 +73,8 @@ func ClassFromStatus(code int) ErrorClass {
 	switch {
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return ErrClassAuth
+	case code == http.StatusPaymentRequired:
+		return ErrClassPaymentRequired
 	case code == http.StatusTooManyRequests:
 		return ErrClassRateLimited
 	case code == http.StatusNotFound:
