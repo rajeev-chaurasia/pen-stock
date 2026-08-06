@@ -1,0 +1,29 @@
+server:
+  listen: ":8080"
+  read_timeout_ms: 10000
+  upstream_timeout_ms: 120000
+  stream_idle_timeout_ms: 30000
+
+providers:
+  - name: groq
+    kind: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key: ${GROQ_API_KEY}
+    models:
+      - llama-3.3-70b-versatile
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://llmsim:8089/v1
+    models:
+      - sim-model
+
+routes:
+  - model: llama-3.3-70b-versatile
+    provider: groq
+  - model: sim-model
+    provider: llmsim
+
+telemetry:
+  service_name: penstock
+  otlp_endpoint: jaeger:4318
+  log_level: info
