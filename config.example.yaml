@@ -21,7 +21,37 @@ auth:
   # Keys callers must present as "Authorization: Bearer <key>". Leave the
   # list empty only while listening on loopback. Generate real ones with
   # something like: openssl rand -hex 32
+  #
+  # Keys listed here are anonymous: they open the gateway, but spend is
+  # not attributed to anyone and no limit applies.
   client_keys: []
+
+  # Tenants give keys an identity and limits of their own. A tenant key
+  # authenticates exactly like a client key above, so a deployment using
+  # tenants alone may still bind a public address.
+  #
+  # name becomes a metrics label, so it is restricted to letters, digits,
+  # underscore and hyphen. A key belongs to exactly one tenant: repeating
+  # it under another tenant, or in client_keys, is rejected at load time
+  # because the caller's identity would be ambiguous.
+  #
+  # Every limit is optional and 0 means unlimited. fail_closed decides
+  # what happens when the accounting store cannot answer: true denies the
+  # request, which is what a hard cap on real money needs, while false
+  # allows it and leaves an alert behind.
+  #
+  # Keys support ${ENV_VAR} references just like provider api_key, and an
+  # unset variable fails the load, which is why this block stays
+  # commented out: the file has to load in a bare shell.
+  #
+  # tenants:
+  #   - name: demo
+  #     keys: ["${PENSTOCK_DEMO_KEY}"]
+  #     requests_per_minute: 60
+  #     tokens_per_minute: 100000
+  #     daily_usd: 1.00
+  #     monthly_usd: 10.00
+  #     fail_closed: true
 
 providers:
   # Groq's OpenAI-compatible API. api_key supports ${ENV_VAR} references,

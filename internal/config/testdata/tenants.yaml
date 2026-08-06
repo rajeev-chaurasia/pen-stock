@@ -1,0 +1,28 @@
+# A tenants-only deployment: no client_keys, yet a public listener is
+# allowed because tenant keys authenticate just as well.
+server:
+  listen: "0.0.0.0:8080"
+
+auth:
+  tenants:
+    - name: demo
+      keys: ["${PENSTOCK_TEST_DEMO_KEY}"]
+      requests_per_minute: 60
+      tokens_per_minute: 100000
+      daily_usd: 1.00
+      monthly_usd: 10.00
+      fail_closed: true
+    - name: internal-team_2
+      keys:
+        - "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        - "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+providers:
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+
+routes:
+  - model: llmsim-small
+    provider: llmsim

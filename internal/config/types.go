@@ -1,5 +1,7 @@
 package config
 
+import "slices"
+
 // ProviderKind selects the adapter implementation for a configured backend.
 type ProviderKind string
 
@@ -54,11 +56,74 @@ type ServerConfig struct {
 	MaxInflight int `yaml:"max_inflight"`
 }
 
-// AuthConfig lists the keys callers must present as a bearer token.
-// With no keys the gateway serves anyone who can reach it, which is
-// why Validate refuses that combination on a non-loopback listener.
+// AuthConfig lists the keys callers must present as a bearer token,
+// either anonymously or under a named tenant. With no keys of either
+// kind the gateway serves anyone who can reach it, which is why Validate
+// refuses that combination on a non-loopback listener.
 type AuthConfig struct {
+	// ClientKeys are anonymous: they open the gateway but carry no
+	// identity and no limits of their own.
 	ClientKeys []string `yaml:"client_keys"`
+	// Tenants name their keys and give them limits. A tenant key
+	// authenticates exactly like a client key, so a deployment may use
+	// tenants alone.
+	Tenants []TenantConfig `yaml:"tenants"`
+}
+
+// TenantConfig is one billable identity and the keys that speak for it.
+// A key belongs to a single tenant, because a request that could be
+// billed to either of two tenants can be billed to neither.
+type TenantConfig struct {
+	// Name is the only part of a tenant safe to put in a metric or a
+	// log line, which is why it is restricted to a label-safe alphabet.
+	Name string   `yaml:"name"`
+	Keys []string `yaml:"keys"`
+	// Limits are inline so a tenant reads as one flat YAML block
+	// instead of burying the numbers under a nested key.
+	Limits TenantLimits `yaml:",inline"`
+}
+
+// TenantLimits is what one tenant may consume. It mirrors the budget
+// package's own Limits rather than reusing it: config sits below every
+// other package and cannot import one that imports it back. The wiring
+// layer converts between the two.
+type TenantLimits struct {
+	// RequestsPerMinute caps request rate. Zero means unlimited, as it
+	// does for every limit below, so a partially configured tenant
+	// stays usable instead of being locked out by omission.
+	RequestsPerMinute int `yaml:"requests_per_minute"`
+	// TokensPerMinute caps token throughput, prompt plus completion.
+	// Zero means unlimited.
+	TokensPerMinute int `yaml:"tokens_per_minute"`
+	// DailyUSD caps spend over a rolling day. Zero means unlimited.
+	DailyUSD float64 `yaml:"daily_usd"`
+	// MonthlyUSD caps spend over a rolling month. Zero means unlimited.
+	MonthlyUSD float64 `yaml:"monthly_usd"`
+	// FailClosed decides what happens when the accounting store cannot
+	// answer. True denies the request, which is what a hard cap on real
+	// money needs; false allows it and leaves an alert behind.
+	FailClosed bool `yaml:"fail_closed"`
+}
+
+// TenantForKey reports which tenant owns key, if any. Keys under
+// client_keys have no tenant and miss here.
+//
+// This walks the configured tenants in order and compares in variable
+// time, so it belongs at startup: the caller indexes the tenants once
+// into whatever constant time matcher it uses per request, and that
+// comparison is deliberately not implemented here.
+func (c *Config) TenantForKey(key string) (name string, limits TenantLimits, ok bool) {
+	// A caller presenting nothing must not match a misconfigured empty
+	// key, even though Validate rejects one.
+	if key == "" {
+		return "", TenantLimits{}, false
+	}
+	for _, t := range c.Auth.Tenants {
+		if slices.Contains(t.Keys, key) {
+			return t.Name, t.Limits, true
+		}
+	}
+	return "", TenantLimits{}, false
 }
 
 type ProviderConfig struct {
