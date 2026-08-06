@@ -1,0 +1,22 @@
+apiVersion: 1
+
+# Grafana scans this directory for provider files (*.yml, *.yaml) and reads
+# only those. The dashboard JSON sitting beside this file is picked up by the
+# provider below, which looks for *.json and ignores everything else. Keeping
+# both in one directory means the compose stack needs no extra volume: it
+# already mounts ./grafana/provisioning read only.
+
+providers:
+  - name: penstock
+    orgId: 1
+    type: file
+    # Provisioned dashboards are owned by this repository, not by whoever last
+    # dragged a panel in the browser. Edits made in the UI are not persisted.
+    allowUiUpdates: false
+    # A dashboard deleted from disk should disappear from Grafana too,
+    # otherwise a stale panel outlives the file that documented it.
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

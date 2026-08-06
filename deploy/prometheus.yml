@@ -2,7 +2,16 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
+  # Metrics live on the admin listener, not on the listener callers use.
+  # Token spend and latency profiles are operator data, so server.admin_listen
+  # in deploy/penstock.yaml has to bind an address this container can reach:
+  # the default 127.0.0.1:9090 is loopback inside the gateway's own container
+  # and refuses every connection from here. Set it to ":9090" there.
+  #
+  # This port is not published to the host in docker-compose.yml, and that is
+  # the right default. It stays reachable on the compose network for
+  # Prometheus and nowhere else.
   - job_name: penstock
     metrics_path: /metrics
     static_configs:
-      - targets: ["penstock:8080"]
+      - targets: ["penstock:9090"]

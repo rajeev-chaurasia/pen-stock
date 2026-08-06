@@ -1,0 +1,512 @@
+{
+  "uid": "penstock-cost",
+  "title": "Penstock cost",
+  "description": "What the gateway is spending, who is spending it, and who is being refused. This is the dashboard the project exists for: every other signal is in service of keeping these numbers where an operator meant them to be.",
+  "tags": ["penstock", "cost"],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "weekStart": "",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "links": [],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "description": "Anonymous client_keys carry no tenant, so their spend lands under an empty tenant label rather than disappearing.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(penstock_cost_usd_total, tenant)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(penstock_cost_usd_total, tenant)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "sort": 1,
+        "hide": 0,
+        "skipUrlSync": false,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": ["All"],
+          "value": ["$__all"]
+        }
+      },
+      {
+        "name": "provider",
+        "label": "Provider",
+        "description": "Cost is attributed to whichever provider actually answered, which on a fallback chain is not always the first one configured.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(penstock_cost_usd_total, provider)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(penstock_cost_usd_total, provider)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "sort": 1,
+        "hide": 0,
+        "skipUrlSync": false,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": ["All"],
+          "value": ["$__all"]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Spend, rolling 24 hours",
+      "description": "Total settled spend across the selected tenants and providers over the last 24 hours. Healthy is whatever your budgets say it should be: this number is here to be compared against the daily_usd caps in config, not to be judged on its own. A flat zero while traffic is flowing means the models being served are absent from the price table, which the gateway reports as unpriced rather than free.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "instant": true,
+          "range": false,
+          "legendFormat": "spend",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(penstock_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "bargauge",
+      "title": "Cumulative spend today by tenant",
+      "description": "Settled spend per tenant over a rolling 24 hours. Rolling rather than calendar day on purpose: the budget enforcer's daily window is itself rolling, so a calendar-day panel would disagree with the limit that is actually being enforced and would show headroom the gateway will refuse to hand out. Healthy shape is a few short bars well under their daily_usd caps. One bar creeping toward its cap through the day is the normal warning sign; a bar that jumps is usually one tenant discovering a large model.",
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "maxVizHeight": 300,
+        "namePlacement": "auto",
+        "sizing": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{tenant}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (tenant) (increase(penstock_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "Top models by spend",
+      "description": "The ten most expensive models over the dashboard time range. Spend concentrates in a small number of models in almost every deployment, so a healthy chart is steeply front loaded and the leader is a model you chose deliberately. A cheap model near the top means it is being called far more than expected, which is a routing question rather than a pricing one. Change the time range and this panel follows it.",
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "maxVizHeight": 300,
+        "namePlacement": "auto",
+        "sizing": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{model}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (model) (increase(penstock_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Spend rate by tenant (USD per hour)",
+      "description": "How fast each tenant is burning money right now, scaled from the per second rate to USD per hour because per second figures for a hobby deployment are all zeros. This is the panel that answers the only question that matters mid incident: if nothing changes, what does the next hour cost. A healthy shape is lumpy but bounded, tracking the working day. A step change that does not come back down is a client stuck in a retry loop, and it will hit a daily cap long before anyone notices it by eye.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "none",
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{tenant}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (tenant) (rate(penstock_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[$__rate_interval])) * 3600"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Spend rate by provider (USD per hour)",
+      "description": "The same money, split by whoever actually answered. Read it next to the tenant panel: identical totals, different story. A fallback chain is supposed to move traffic between providers, so a healthy shape has one dominant series with the others near zero, and the handoffs are visible as one series dropping while another rises. A paid provider quietly taking over from a free tier looks exactly like that, and it is the cheapest bug in this system to catch early.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "none",
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{provider}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (provider) (rate(penstock_cost_usd_total{tenant=~\"$tenant\", provider=~\"$provider\"}[$__rate_interval])) * 3600"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Denials by reason (per minute)",
+      "description": "Requests the gateway refused before spending anything, split by which limit said no. Healthy is a flat zero, or a thin band of request_rate during bursts. The reasons are not interchangeable. request_rate and token_rate refill by waiting, and the client is told how long. daily_budget and monthly_budget do not refill by waiting, so a client retrying against them will never succeed and is burning your gateway rather than your provider. accounting_unavailable means the store could not answer and the tenant asked to fail closed, which is a Penstock problem rather than a tenant one. unknown_tenant means a key authenticated but names a tenant the enforcer never received, which is always a config fault on this side.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "none",
+            "pointSize": 5,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": ["sum", "max"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (reason) (rate(penstock_denials_total{tenant=~\"$tenant\"}[$__rate_interval])) * 60"
+        },
+        {
+          "refId": "B",
+          "hide": true,
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{tenant}} {{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (tenant, reason) (rate(penstock_denials_total{tenant=~\"$tenant\"}[$__rate_interval])) * 60"
+        }
+      ]
+    }
+  ]
+}

@@ -25,8 +25,9 @@
 # (context-length tiers, cache reads, batch discounts) is not modelled:
 # where a provider tiers by context length, the base tier is used.
 #
-# This file is kept byte identical to internal/pricing/pricing.yaml, which
-# is the copy compiled into the binary. A test fails if the two drift.
+# This file is compiled into the binary, and it is the only copy. An
+# operator who wants different numbers copies it out and points
+# accounting at the copy rather than editing a second source of truth.
 
 version: 1
 updated: "2026-08-05"

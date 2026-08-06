@@ -1,5 +1,11 @@
 server:
   listen: ":8080"
+  # Metrics live on the admin listener, so it has to be reachable from
+  # Prometheus inside the compose network. The default is container
+  # local loopback, which nothing else can scrape. This port is not
+  # published to the host: token spend and latency profiles are operator
+  # data, not something to hang off a laptop's network interface.
+  admin_listen: ":9090"
   read_timeout_ms: 10000
   upstream_timeout_ms: 120000
   stream_idle_timeout_ms: 30000

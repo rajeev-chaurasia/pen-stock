@@ -1,0 +1,246 @@
+# Configuration
+
+Penstock reads one YAML file, named with `--config` and defaulting to
+`config.yaml`. `config.example.yaml` in the repository root is a working
+copy of it with every section annotated.
+
+Two things are worth knowing before the tables below.
+
+**Unknown fields are rejected.** A misspelled key fails the load rather
+than being ignored. That is deliberate: a typo in `daily_usd` that
+silently defaulted to unlimited would be discovered by an invoice.
+
+**Validation reports everything at once.** The loader collects every
+problem it finds and returns them joined into a single error, so fixing a
+config is one pass rather than a sequence of restarts.
+
+## The loopback fail safe
+
+This is the one rule that will stop a gateway from starting, so it comes
+first.
+
+If `auth.client_keys` is empty **and** no tenant declares any keys, then
+`server.listen` must bind loopback. `127.0.0.1:8080` and `localhost:8080`
+pass. `:8080`, `0.0.0.0:8080`, and any routable address are refused at load
+time with an error naming the address you gave.
+
+The reasoning is short. An unauthenticated gateway is a door to the
+provider API keys configured further down the same file. Anyone who can
+reach the port can spend them. Binding wider than loopback is therefore a
+deliberate act that has to be paired with a credential.
+
+A tenant key satisfies the rule exactly as a client key does, so a
+deployment whose only credentials are tenant keys may bind a public
+address.
+
+## Environment variable references
+
+`${VAR}` references are expanded at load time in three places:
+`providers[].api_key`, `auth.client_keys[]`, and `auth.tenants[].keys[]`.
+Secrets never have to live in the file.
+
+A referenced variable that is unset **or set to empty** fails the load.
+Empty counts as missing on purpose: a `${VAR:-}` default in a compose file
+would otherwise boot a gateway whose every upstream call fails
+authentication, which is a much worse failure than not booting.
+
+This is why the `tenants` block and most providers are commented out in
+`config.example.yaml`. That file has to load in a bare shell with nothing
+exported.
+
+## `server`
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `listen` | string `host:port` | `127.0.0.1:8080` | Binds loopback. See the fail safe above. |
+| `admin_listen` | string `host:port` | `127.0.0.1:9090` | Metrics and the tenant API bind loopback only. |
+| `max_inflight` | int | `256` | 256 concurrent requests, then a 503. Negative is rejected. |
+| `read_timeout_ms` | int (ms) | `30000` | 30s to read a request. |
+| `upstream_timeout_ms` | int (ms) | `120000` | 120s for the whole upstream call. |
+| `stream_idle_timeout_ms` | int (ms) | `60000` | A stream may sit 60s without a byte before the gateway gives up. |
+
+Every `*_timeout_ms` field is capped at 3600000 (one hour). A larger value
+is almost certainly a units mistake, and a negative one would disable the
+deadline entirely rather than shortening it, so both are rejected instead
+of being defaulted.
+
+`admin_listen` carries the metrics endpoint and the tenant budget API.
+Token spend and latency profiles are operator data, not caller data, which
+is why they are not on the listener callers use. See
+[admin-api.md](admin-api.md).
+
+`max_inflight` is a memory ceiling as much as a load control. Each request
+in flight can hold a request body plus an upstream response, so unbounded
+concurrency means unbounded memory. Requests beyond the limit are shed with
+a 503 rather than queued.
+
+## `auth`
+
+Two kinds of credential, both presented as `Authorization: Bearer <key>`.
+Both open the gateway. Only one of them has an identity.
+
+### `auth.client_keys`
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `client_keys` | list of strings | `[]` | No anonymous keys. Combined with no tenants, this triggers the loopback fail safe. |
+
+Each key must be at least 16 characters. Generate them with something like
+`openssl rand -hex 32`.
+
+Client keys are anonymous. They authenticate, but spend is attributed to
+nobody and no limit applies to them. They are the right choice for a
+single-operator local deployment and the wrong choice for anything you need
+to bill.
+
+### `auth.tenants`
+
+A tenant gives a set of keys an identity and limits of its own.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `name` | string | required | Load fails. The name is how spend is attributed. |
+| `keys` | list of strings | required, non-empty | Load fails. A tenant with no keys can never be reached. |
+| `requests_per_minute` | int | `0` | Unlimited. |
+| `tokens_per_minute` | int | `0` | Unlimited. Counts prompt plus completion. |
+| `daily_usd` | float | `0` | Unlimited. Rolling 24 hour window. |
+| `monthly_usd` | float | `0` | Unlimited. Rolling 30 day window. |
+| `fail_closed` | bool | `false` | The request is allowed when accounting cannot answer. |
+
+`name` becomes a metrics label and a log field, so it is restricted to
+letters, digits, underscore and hyphen. Whitespace and separators would
+either need quoting or silently split the value downstream.
+
+Zero means unlimited on every numeric limit. That keeps a partially
+configured tenant usable instead of locked out by an omission, which is the
+failure mode you want when somebody adds a tenant at 3am and forgets a
+field.
+
+`fail_closed` decides what happens when the accounting store cannot answer.
+`true` denies the request, which is what a hard cap on real money needs.
+`false` allows it and leaves an alert behind, which suits an advisory
+limit. Denials from this path show up as `accounting_unavailable` on the
+denials panel.
+
+A key belongs to exactly one tenant. Repeating a key under a second tenant,
+or in `client_keys`, fails the load: a request that could be billed to
+either of two tenants can be billed to neither. Error messages name the
+tenant and the index, never the key itself, because error text reaches
+logs.
+
+Negative limits are rejected. Omit the field or write `0` for unlimited.
+
+```yaml
+auth:
+  client_keys: []
+  tenants:
+    - name: demo
+      keys: ["${PENSTOCK_DEMO_KEY}"]
+      requests_per_minute: 60
+      tokens_per_minute: 100000
+      daily_usd: 1.00
+      monthly_usd: 10.00
+      fail_closed: true
+```
+
+## `accounting`
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `ledger_path` | string | `""` | No ledger is written. |
+
+The ledger is the append-only record of what each settled request cost.
+With no path, spend is still enforced and still reported, but only the
+running totals survive: a restart forgets which requests produced them.
+
+This section is absent from `config.example.yaml`, so that a local run does
+not litter the working directory with audit files nobody asked for. Format
+and semantics are in [cost-accounting.md](cost-accounting.md).
+
+```yaml
+accounting:
+  ledger_path: /var/lib/penstock/cost.jsonl
+```
+
+## `providers`
+
+At least one provider is required.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `name` | string | required, unique | Load fails. This is the name routes refer to. |
+| `kind` | enum | required | Load fails. |
+| `base_url` | string | required | Load fails. Must be a valid `http` or `https` URL with a host. |
+| `api_key` | string | required, non-empty | Load fails, including when a `${VAR}` expands to empty. |
+| `models` | list of strings | `[]` | Unrestricted: any route may target this provider. |
+
+`kind` is one of `groq`, `openai_compat`, `openai`, `cerebras`, `mistral`,
+`openrouter`, `gemini`, `anthropic`.
+
+`kind` selects the adapter. `base_url` is asked for even on kinds that know
+their own default endpoint, so that pointing at a proxy or a regional
+endpoint is an edit rather than a rebuild. `openai_compat` is the one kind
+with no default at all, because self-hosted runtimes live wherever you put
+them.
+
+`models` is a whitelist, not a declaration. When it is non-empty, a route
+targeting this provider must ask for a model that appears in it, and the
+load fails otherwise. Leaving it empty removes that check rather than
+removing the models.
+
+A `kind` whose adapter is not compiled into the binary fails at startup
+rather than at load, since registration happens later than validation.
+
+## `routes`
+
+At least one route is required. A route maps an incoming model name to the
+provider or chain that serves it.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `model` | string | required, unique across routes | Load fails. |
+| `provider` | string | one of `provider` / `providers` required | Load fails if neither is set. |
+| `providers` | list of strings | one of `provider` / `providers` required | Load fails if neither is set. |
+| `strategy` | enum | `priority` | Providers are tried in configured order. |
+| `provider_models` | map provider to string | `{}` | Every provider is asked for the route's own model name. |
+
+Setting both `provider` and `providers` is rejected: naming both leaves the
+intended order ambiguous. A provider repeated inside one chain is rejected
+for the same reason.
+
+`strategy` is `priority` (configured order), `least_latency` (fastest
+healthy provider first), or `round_robin` (spread load, which across
+independent free tiers means spreading the quota).
+
+`provider_models` renames the model per provider. A chain across different
+vendors rarely shares a vocabulary, so without this the second provider in
+such a chain would be asked for a model it has never heard of. A rename
+naming a provider that is not in the chain is rejected, because it is
+almost always a typo in one of the two names.
+
+```yaml
+routes:
+  - model: auto
+    providers: [groq, cerebras, openrouter]
+    strategy: round_robin
+    provider_models:
+      groq: llama-3.3-70b-versatile
+      cerebras: gpt-oss-120b
+```
+
+## `telemetry`
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `service_name` | string | `penstock` | Spans are attributed to `penstock`. |
+| `otlp_endpoint` | string | `""` | Trace export is disabled. |
+| `log_level` | enum | `info` | Info and above. |
+
+`log_level` is one of `debug`, `info`, `warn`, `error`. Anything else fails
+the load.
+
+An empty `otlp_endpoint` disables export rather than falling back to a
+default collector, so a machine with nothing listening does not spend every
+request retrying an exporter.
+
+Metric names and labels are in [observability.md](observability.md).
