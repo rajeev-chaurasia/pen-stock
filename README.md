@@ -120,11 +120,33 @@ Note that many entries in the shipped price table are marked
 the running totals, but check the rates against provider pricing pages
 before trusting the absolute numbers.
 
+## Caching
+
+Repeated questions are answered without calling a provider. The exact
+tier canonicalizes a request first, so key order and whitespace cannot
+cause a spurious miss, while a streaming and a whole answer to the same
+question share one entry. Measured live, a repeat returned in 166ms
+against 694ms upstream.
+
+What is never cached is the more important half: sampling asked to
+vary, tool calls whose answer is an instruction to act, and anything
+carrying a seed. Entries are keyed per tenant, so one tenant's answer
+cannot surface in another's response.
+
+The semantic tier, which answers a question similar to one already
+asked, is off by default. Measurement showed questions with opposite
+meanings scoring higher than genuine paraphrases, so no threshold
+reliably separates them. See [docs/semantic-caching.md](docs/semantic-caching.md)
+for the numbers and what they mean.
+
 ## Status
 
-Phases 0 through 3 are done: ingress and streaming, the provider
-adapters, routing, and per-tenant cost control. Semantic caching and the
-published benchmark campaign are next.
+Phases 0 through 4 are done: ingress and streaming, the provider
+adapters, routing, per-tenant cost control, and caching. The benchmark
+campaign is in progress: `cmd/calibrate` records real provider latency
+into the profiles llmsim replays, and the k6 harness lives in
+[bench/](bench/). No performance numbers are published yet, and none
+should be believed until they are reproducible from that harness.
 
 ## License
 

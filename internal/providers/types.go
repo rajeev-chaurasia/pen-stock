@@ -41,10 +41,11 @@ type StreamChunk struct {
 	Keepalive bool
 }
 
-// ErrStreamTruncated reports an upstream stream that ended without its
-// terminating [DONE] sentinel. On the OpenAI wire that sentinel is the
-// only completeness signal, so this must never be reported as io.EOF:
-// callers would relay a partial answer as a whole one.
+// ErrStreamTruncated reports an upstream stream that ended without the
+// marker its provider uses to say the answer is finished: [DONE] on the
+// OpenAI wire, a non-empty finishReason for Gemini, message_stop for
+// Anthropic. Whatever the marker, its absence must never be reported as
+// io.EOF, or callers relay a partial answer as a whole one.
 var ErrStreamTruncated = errors.New("upstream stream ended without the [DONE] sentinel")
 
 // StreamReader yields chunks until a terminal error. io.EOF means the

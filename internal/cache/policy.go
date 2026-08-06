@@ -36,17 +36,20 @@
 // comparing by cosine distance produces this, which
 // TestMeasureRealSimilarities reproduces against a live key:
 //
-//	0.829  "What is the capital city of France?" vs "Which city is the capital of France?"
-//	0.810  "How do I sort a list in Python?"     vs "What is the way to sort a python list?"
-//	0.908  "How do I enable logging?"            vs "How do I disable logging?"
-//	0.926  "Is it safe to delete this file?"     vs "Is it unsafe to delete this file?"
-//	0.942  "Should I use a mutex here?"          vs "Should I avoid a mutex here?"
+//	0.829  paraphrase  "capital city of France"   vs "which city is the capital"
+//	0.810  paraphrase  "how do I sort a list"     vs "what is the way to sort"
+//	0.803  OPPOSITE    "how do I start the service" vs "how do I stop the service"
+//	0.908  OPPOSITE    "how do I enable logging"  vs "how do I disable logging"
+//	0.926  OPPOSITE    "is it safe to delete this" vs "is it unsafe to delete this"
+//	0.942  OPPOSITE    "should I use a mutex here" vs "should I avoid a mutex here"
+//	0.513  unrelated   "capital of France"        vs "boiling point of water"
 //
-// The two groups do not merely overlap, they invert: questions with
-// opposite meanings score HIGHER than genuine paraphrases, because one
-// negating word moves a sentence embedding very little while rephrasing
-// moves it a lot. No threshold separates them. Anything low enough to
-// catch a paraphrase serves the answer to "enable" when asked "disable".
+// The two groups overlap, and three of the four opposite pairs score
+// HIGHER than either paraphrase. One negating word moves a sentence
+// embedding very little while rephrasing moves it a lot, so the
+// ordering carries no reliable signal about sameness of meaning. No
+// threshold separates the groups: anything low enough to catch a
+// paraphrase serves the answer to "enable" when asked "disable".
 //
 // So the exact tier is the default and the semantic tier is opt in,
 // with a floor high enough that it rarely fires and a startup warning
