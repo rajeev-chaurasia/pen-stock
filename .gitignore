@@ -1,8 +1,9 @@
-# binaries
-/penstock
-/penstock.exe
-/llmsim
-/llmsim.exe
+# binaries, wherever a build happens to drop them
+penstock
+penstock.exe
+llmsim
+llmsim.exe
+*.exe
 /bin/
 /dist/
 
@@ -11,9 +12,14 @@ coverage.out
 coverage.html
 *.test
 
-# local environment
+# local environment. The example carries names only and is committed on
+# purpose; anything else matching these patterns holds real keys.
 .env
 .env.*
+!.env.example
+
+# operator config, which resolves real keys at load time
+/config.yaml
 
 # editor noise
 .idea/

@@ -85,7 +85,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
-	if err := cfg.expandAPIKeys(); err != nil {
+	if err := cfg.expandSecrets(); err != nil {
 		return nil, err
 	}
 	cfg.applyDefaults()
@@ -93,6 +93,29 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %s:\n%w", path, err)
 	}
 	return &cfg, nil
+}
+
+// expandSecrets resolves ${VAR} references in every field that holds a
+// secret. Client keys get the same treatment as provider keys because
+// they are what stands between a caller and the provider keys.
+func (c *Config) expandSecrets() error {
+	return errors.Join(c.expandAPIKeys(), c.expandClientKeys())
+}
+
+func (c *Config) expandClientKeys() error {
+	var errs []error
+	for i, key := range c.Auth.ClientKeys {
+		c.Auth.ClientKeys[i] = envRefPattern.ReplaceAllStringFunc(key, func(ref string) string {
+			name := ref[2 : len(ref)-1]
+			val, ok := os.LookupEnv(name)
+			if !ok || val == "" {
+				errs = append(errs, fmt.Errorf("auth: client_keys[%d] references %s, which is unset or empty: %w", i, name, ErrMissingEnv))
+				return ref
+			}
+			return val
+		})
+	}
+	return errors.Join(errs...)
 }
 
 func (c *Config) expandAPIKeys() error {

@@ -22,7 +22,10 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/obs"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 
-	// Blank import registers the openaiwire provider kinds with the factory.
+	// Blank imports register each adapter's kinds with the factory. A
+	// missing one here means the kind is rejected at startup.
+	_ "github.com/rajeev-chaurasia/pen-stock/internal/providers/anthropic"
+	_ "github.com/rajeev-chaurasia/pen-stock/internal/providers/gemini"
 	_ "github.com/rajeev-chaurasia/pen-stock/internal/providers/openaiwire"
 )
 
