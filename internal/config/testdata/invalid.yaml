@@ -1,0 +1,16 @@
+providers:
+  - name: dup
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+  - name: dup
+    kind: openai_compat
+    base_url: http://127.0.0.1:8090/v1
+    api_key: sim
+
+routes:
+  - model: some-model
+    provider: nowhere
+
+telemetry:
+  log_level: loud

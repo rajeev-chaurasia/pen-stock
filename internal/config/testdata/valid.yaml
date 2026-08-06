@@ -1,0 +1,28 @@
+server:
+  listen: ":9090"
+  read_timeout_ms: 1000
+  upstream_timeout_ms: 2000
+  stream_idle_timeout_ms: 3000
+
+providers:
+  - name: groq
+    kind: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key: ${PENSTOCK_TEST_GROQ_KEY}
+    models:
+      - llama-3.3-70b-versatile
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+
+routes:
+  - model: llama-3.3-70b-versatile
+    provider: groq
+  - model: llmsim-small
+    provider: llmsim
+
+telemetry:
+  service_name: penstock-test
+  otlp_endpoint: http://127.0.0.1:4318
+  log_level: debug

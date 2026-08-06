@@ -1,0 +1,44 @@
+# Penstock gateway configuration example.
+# Copy to config.yaml and adjust for your environment.
+
+server:
+  # Address the gateway listens on.
+  listen: ":8080"
+  # All timeouts are in milliseconds.
+  read_timeout_ms: 30000
+  upstream_timeout_ms: 120000
+  # How long a streaming response may sit idle before the gateway gives up.
+  stream_idle_timeout_ms: 60000
+
+providers:
+  # Groq's OpenAI-compatible API. api_key supports ${ENV_VAR} references,
+  # resolved at load time, so real keys never live in this file.
+  - name: groq
+    kind: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key: ${GROQ_API_KEY}
+    models:
+      - llama-3.3-70b-versatile
+
+  # Local llmsim instance for development and load testing.
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+    models:
+      - llmsim-small
+
+# Incoming model name -> provider that serves it.
+# Models must be unique across routes; providers must be declared above.
+routes:
+  - model: llama-3.3-70b-versatile
+    provider: groq
+  - model: llmsim-small
+    provider: llmsim
+
+telemetry:
+  service_name: penstock
+  # Leave empty to disable OTLP trace export.
+  otlp_endpoint: ""
+  # One of: debug, info, warn, error.
+  log_level: info

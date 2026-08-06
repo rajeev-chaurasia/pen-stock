@@ -1,0 +1,13 @@
+server:
+  listen: ":8080"
+  max_connections: 100
+
+providers:
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+
+routes:
+  - model: llmsim-small
+    provider: llmsim
