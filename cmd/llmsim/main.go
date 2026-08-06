@@ -1,0 +1,71 @@
+// Command llmsim runs the deterministic mock LLM provider used for load
+// testing and integration tests.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/rajeev-chaurasia/pen-stock/internal/llmsim"
+)
+
+const shutdownGrace = 5 * time.Second
+
+func main() {
+	listen := flag.String("listen", ":8089", "address to listen on")
+	seed := flag.Int64("seed", 1, "determinism seed")
+	profilePath := flag.String("profile", "", "path to a profile JSON file; built-in default when empty")
+	timeScale := flag.Float64("time-scale", 1.0, "multiplier applied to every simulated sleep")
+	fail429 := flag.Float64("fail-429", 0, "probability of responding 429")
+	failHang := flag.Float64("fail-hang", 0, "probability of hanging the connection")
+	failCut := flag.Float64("fail-cut", 0, "probability of cutting a stream mid-way")
+	flag.Parse()
+
+	profile := llmsim.DefaultProfile
+	if *profilePath != "" {
+		p, err := llmsim.LoadProfile(*profilePath)
+		if err != nil {
+			log.Fatalf("llmsim: %v", err)
+		}
+		profile = p
+	}
+
+	sim := llmsim.New(llmsim.Options{
+		Seed:      *seed,
+		Profile:   profile,
+		TimeScale: *timeScale,
+		Fail429:   *fail429,
+		FailHang:  *failHang,
+		FailCut:   *failCut,
+	})
+	srv := &http.Server{Addr: *listen, Handler: sim}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	log.Printf("llmsim listening on %s profile=%s seed=%d time-scale=%g fail-429=%g fail-hang=%g fail-cut=%g",
+		*listen, profile.Name, *seed, *timeScale, *fail429, *failHang, *failCut)
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("llmsim: serve: %v", err)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("llmsim: shutdown: %v", err)
+		}
+	}
+}
