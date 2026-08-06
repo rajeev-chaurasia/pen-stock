@@ -146,17 +146,31 @@ type promptFeedback struct {
 type usageMetadata struct {
 	PromptTokenCount     int `json:"promptTokenCount"`
 	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	// ThoughtsTokenCount is what a thinking model spent reasoning before
+	// it answered. Gemini reports it separately from the visible answer
+	// but charges it at the output rate.
+	ThoughtsTokenCount int `json:"thoughtsTokenCount"`
+	TotalTokenCount    int `json:"totalTokenCount"`
 }
 
+// toUsage folds reasoning tokens into the completion count, because the
+// gateway prices completions at the output rate and that is what the
+// provider bills. Reporting only the visible answer looks tidy and
+// understates the bill by an order of magnitude on a thinking model: a
+// live call returned 6 visible tokens against 68 charged ones.
 func (u *usageMetadata) toUsage() providers.Usage {
 	if u == nil {
 		return providers.Usage{}
 	}
+	completion := u.CandidatesTokenCount + u.ThoughtsTokenCount
+	total := u.TotalTokenCount
+	if total == 0 {
+		total = u.PromptTokenCount + completion
+	}
 	return providers.Usage{
 		PromptTokens:     u.PromptTokenCount,
-		CompletionTokens: u.CandidatesTokenCount,
-		TotalTokens:      u.TotalTokenCount,
+		CompletionTokens: completion,
+		TotalTokens:      total,
 	}
 }
 
