@@ -185,6 +185,16 @@ type ProviderConfig struct {
 	// Models restricts which route models this provider may serve.
 	// Empty means unrestricted: any route may target the provider.
 	Models []string `yaml:"models"`
+	// StreamUsage overrides whether streaming requests ask the backend
+	// for token usage. Unset follows the kind's own default, which is
+	// off for openai_compat because that kind fronts arbitrary self
+	// hosted software and some of it rejects unknown fields.
+	//
+	// Turn it on for a backend that supports it. llama.cpp's server and
+	// vLLM both do, and without it a streamed request to them reports no
+	// tokens, which means budgets cannot bill it and the ledger records
+	// a completion that appears to have cost nothing.
+	StreamUsage *bool `yaml:"stream_usage"`
 }
 
 type RouteConfig struct {

@@ -87,6 +87,14 @@ func builderFor(kind config.ProviderKind) providers.Builder {
 		if baseURL == "" {
 			return nil, fmt.Errorf("kind %q has no default endpoint: %w", kind, errNoBaseURL)
 		}
-		return newWithProfile(cfg.Name, baseURL, cfg.APIKey, prof, nil), nil
+
+		// The kind's default is a safe guess about a vendor. An operator
+		// running their own backend knows better than the guess, and
+		// without usage a streamed request cannot be billed at all.
+		effective := prof
+		if cfg.StreamUsage != nil {
+			effective.streamUsage = *cfg.StreamUsage
+		}
+		return newWithProfile(cfg.Name, baseURL, cfg.APIKey, effective, nil), nil
 	}
 }
