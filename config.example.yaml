@@ -103,9 +103,30 @@ providers:
   #   models:
   #     - claude-3-5-haiku-latest
 
-# Incoming model name -> provider that serves it.
+# Incoming model name -> the provider or chain that serves it.
 # Models must be unique across routes; providers must be declared above,
 # and each model must appear in that provider's models list.
+#
+# A route can name one provider, or a chain that is tried in turn. In a
+# chain, a rejected payload or a client cancel stops immediately, while
+# a rate limit or a dead account moves straight to the next provider and
+# a transient upstream error retries in place first.
+#
+# strategy: priority (configured order, the default), least_latency
+# (fastest healthy provider first), or round_robin (spread load, which
+# across independent free tiers means spreading the quota).
+#
+# provider_models renames the model per provider, because a chain over
+# different vendors rarely shares a vocabulary. Uncomment the block
+# below once those providers and their keys are configured.
+#
+# - model: auto
+#   providers: [groq, cerebras, openrouter]
+#   strategy: round_robin
+#   provider_models:
+#     groq: llama-3.3-70b-versatile
+#     cerebras: gpt-oss-120b
+#     openrouter: "inclusionai/ling-3.0-flash:free"
 routes:
   - model: llama-3.3-70b-versatile
     provider: groq

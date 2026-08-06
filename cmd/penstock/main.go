@@ -162,6 +162,11 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 			if !ok {
 				return nil, fmt.Errorf("route %q: provider %q was not built", route.Model, name)
 			}
+			// Providers in one chain rarely share a model vocabulary, so
+			// each is asked for the name it actually knows.
+			if upstream := route.UpstreamModel(name); upstream != route.Model {
+				p = providers.WithModel(p, upstream)
+			}
 			chain = append(chain, p)
 		}
 

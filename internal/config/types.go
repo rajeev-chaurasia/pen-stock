@@ -83,6 +83,21 @@ type RouteConfig struct {
 	Providers []string `yaml:"providers"`
 	// Strategy orders the chain. Empty means priority order.
 	Strategy string `yaml:"strategy"`
+	// ProviderModels renames the model per provider, keyed by provider
+	// name. A chain over independent free tiers rarely shares a
+	// vocabulary, so without this the second provider in such a chain
+	// would be asked for a model it has never heard of. A provider left
+	// out of the map is asked for the route's own model name.
+	ProviderModels map[string]string `yaml:"provider_models"`
+}
+
+// UpstreamModel reports the model name to ask provider for on this
+// route, falling back to the route's own name.
+func (r RouteConfig) UpstreamModel(provider string) string {
+	if m, ok := r.ProviderModels[provider]; ok && m != "" {
+		return m
+	}
+	return r.Model
 }
 
 // Chain returns the providers serving this route, in configured order,

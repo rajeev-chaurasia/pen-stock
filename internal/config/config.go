@@ -272,8 +272,9 @@ func (c *Config) Validate() error {
 			case !providerNames[name]:
 				add("%s: provider %q is not declared under providers", label, name)
 			default:
-				if models := providerModels[name]; models != nil && !models[r.Model] {
-					add("%s: provider %q does not list model %q under models", label, name, r.Model)
+				upstream := r.UpstreamModel(name)
+				if models := providerModels[name]; models != nil && !models[upstream] {
+					add("%s: provider %q does not list model %q under models", label, name, upstream)
 				}
 			}
 			seen[name] = true
@@ -281,6 +282,13 @@ func (c *Config) Validate() error {
 
 		if r.Strategy != "" && !slices.Contains(AllStrategies, r.Strategy) {
 			add("%s: strategy %q must be one of %v", label, r.Strategy, AllStrategies)
+		}
+		// A rename for a provider that does not serve this route is
+		// almost always a typo in one of the two names.
+		for name := range r.ProviderModels {
+			if !seen[name] {
+				add("%s: provider_models names %q, which is not in this route's chain", label, name)
+			}
 		}
 	}
 

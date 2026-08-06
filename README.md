@@ -1,38 +1,91 @@
 # Penstock
 
-A single-binary LLM gateway in Go: multi-provider routing, fallback chains,
-semantic caching, per-tenant token budgets, and benchmarks you can reproduce.
+A single-binary LLM gateway in Go: multi-provider routing, fallback
+chains, per-provider cost accounting, and benchmarks you can reproduce.
 
 A penstock is the pressure pipe that feeds a hydro turbine. It meters,
 controls, and survives high-pressure flow. Same job here.
 
 ## Security status
 
-This build is for local use only. Do not expose it to the internet or to an
-untrusted network as it stands. There is no client authentication and no rate
-limiting yet, so any request that reaches the listener is forwarded upstream
-using the operator's API key and billed to that account, and /v1/models will
-list the models you have configured. The local compose stack in deploy/ binds
-its ports to 127.0.0.1 for this reason.
+This build is for local use only. Do not expose it to the internet or to
+an untrusted network as it stands. Configuring `auth.client_keys` turns
+on bearer authentication, and the loader refuses to bind anything but
+loopback without it, but there is no per-tenant rate limiting or budget
+enforcement yet. Free provider tiers generally train on submitted
+prompts, so production or otherwise sensitive data does not belong here.
 
-Free provider tiers generally train on submitted prompts, so production or
-otherwise sensitive data does not belong in this gateway. Authentication and
-rate limiting are Phase 3 work.
+## What works today
 
-## Status
+One OpenAI-compatible endpoint in front of several providers, with
+streaming passthrough, fallback chains, and cost attributed to whichever
+provider actually answered.
 
-Under active development. Phase 0: OpenAI-compatible passthrough with SSE
-streaming, one provider (Groq), observability skeleton, and llmsim, a
-deterministic mock provider for honest load testing.
+```yaml
+routes:
+  - model: auto
+    providers: [groq, mistral, openrouter]
+    strategy: round_robin
+    provider_models:
+      groq: llama-3.3-70b-versatile
+      mistral: mistral-small-latest
+      openrouter: "inclusionai/ling-3.0-flash:free"
+```
+
+That is one model name in front of three independent free tiers. Their
+rate limits are separate, so chaining them multiplies the headroom any
+one of them gives you.
+
+### Providers
+
+| Kind | Wire format | Verified |
+|---|---|---|
+| `groq` | OpenAI | live |
+| `mistral` | OpenAI | live |
+| `openrouter` | OpenAI | live |
+| `gemini` | native, translated | live |
+| `openai` | OpenAI | conformance suite |
+| `cerebras` | OpenAI | conformance suite |
+| `anthropic` | native, translated | conformance suite |
+| `openai_compat` | OpenAI | live, against the bundled simulator |
+
+"Live" means real traffic through the gateway against that provider's
+API. "Conformance suite" means it satisfies the same contract every
+adapter is held to, exercised against recorded response shapes rather
+than the live service.
+
+### Behavior worth knowing
+
+- A stream that ends without its provider's completion marker is
+  reported as truncated, never as a finished answer. Each provider
+  signals completion differently: `[DONE]` on the OpenAI wire, a
+  `finishReason` for Gemini, `message_stop` for Anthropic.
+- Streaming requests are opted into upstream token usage where the
+  provider supports it, because usage that is never reported cannot be
+  billed or budgeted.
+- Reasoning tokens count as completion tokens, since that is how
+  providers charge for them.
+- Fallback happens while connecting only. Once a stream has started,
+  switching providers would splice two different answers together, so a
+  mid-stream failure surfaces as truncation instead.
 
 ## Quickstart
 
-Coming with the first tagged release. Until then:
+```
+cp .env.example .env        # add whichever keys you have
+cp config.example.yaml config.yaml
+set -a; . ./.env; set +a
+make build && ./bin/penstock --config config.yaml
+```
 
-```
-make build
-make test
-```
+`llmsim`, a deterministic mock provider, ships alongside the gateway for
+development and load testing without spending quota.
+
+## Status
+
+Phases 0 through 2 are done: ingress and streaming, the provider
+adapters, and routing. Per-tenant budgets, semantic caching, and the
+published benchmark campaign are next.
 
 ## License
 
