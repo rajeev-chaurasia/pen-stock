@@ -1,6 +1,12 @@
 # Local development stack. Paths are relative to this file, so run either
 #   docker compose -f deploy/docker-compose.yml up
 # from the repo root, or docker compose up from inside deploy/.
+#
+# Every port below is published on 127.0.0.1 only, so the stack stays reachable
+# from this machine and not from the rest of the network. Do not drop the
+# 127.0.0.1 prefix: the gateway has no client authentication and Grafana runs
+# with anonymous admin, so a bare "8080:8080" hands both to anyone who can
+# route to this host.
 
 services:
   penstock:
@@ -9,7 +15,7 @@ services:
     image: penstock:local
     command: ["--config", "/etc/penstock/penstock.yaml"]
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
     volumes:
@@ -27,23 +33,24 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.62.0
     ports:
-      - "16686:16686"
+      - "127.0.0.1:16686:16686"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 
   prometheus:
     image: prom/prometheus:v3.5.0
     ports:
-      - "9091:9090"
+      - "127.0.0.1:9091:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   grafana:
     image: grafana/grafana:11.6.0
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      # Anonymous admin is for this local stack only, never production.
+      # Anonymous admin is for this local stack only, never production. It is
+      # only tolerable because the port above is bound to 127.0.0.1.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:

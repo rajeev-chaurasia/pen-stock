@@ -14,6 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/rajeev-chaurasia/pen-stock/internal/config"
 	"github.com/rajeev-chaurasia/pen-stock/internal/ingress"
 	"github.com/rajeev-chaurasia/pen-stock/internal/obs"
@@ -115,7 +118,10 @@ func run() error {
 func withSpan(next http.Handler) http.Handler {
 	tracer := obs.Tracer()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := tracer.Start(r.Context(), r.Method+" "+r.URL.Path)
+		// The span name uses the normalized path so a URL scanner cannot
+		// mint unbounded span names; the raw path rides as an attribute.
+		ctx, span := tracer.Start(r.Context(), r.Method+" "+ingress.NormalizePath(r.URL.Path),
+			trace.WithAttributes(attribute.String("http.request.path", r.URL.Path)))
 		defer span.End()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

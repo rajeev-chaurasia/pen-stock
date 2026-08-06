@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -17,10 +18,20 @@ const (
 	sseDataPrefix   = "data:"
 	sseDoneSentinel = "[DONE]"
 	sseCommentByte  = ':'
+
+	// maxEventBytes bounds how much of a single SSE event is held in
+	// memory. A well-formed chat chunk is a few KB, so 1 MiB leaves
+	// ample headroom while keeping a hostile upstream from forcing
+	// unbounded allocation through a never-terminated line.
+	maxEventBytes int = 1 << 20
 )
 
+// errEventTooLarge marks an SSE event that exceeded maxEventBytes.
+var errEventTooLarge = errors.New("sse event exceeds size limit")
+
 // streamReader turns an SSE response body into StreamChunks. It holds at
-// most one event in memory at a time; the response is never buffered whole.
+// most maxEventBytes of one event in memory at a time; the response is
+// never buffered whole.
 type streamReader struct {
 	ctx      context.Context
 	provider string
@@ -89,12 +100,14 @@ func (r *streamReader) Close() error {
 
 // nextEvent reads one SSE event and returns its joined data payload.
 // Comment lines and non-data fields are skipped; CRLF endings and data
-// split across multiple lines are handled per the SSE spec.
+// split across multiple lines are handled per the SSE spec. An event
+// larger than maxEventBytes aborts with errEventTooLarge.
 func (r *streamReader) nextEvent() (string, error) {
 	var data []string
 	haveData := false
+	remaining := maxEventBytes
 	for {
-		line, err := r.br.ReadString('\n')
+		line, err := r.readLine(&remaining)
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			switch {
@@ -102,7 +115,9 @@ func (r *streamReader) nextEvent() (string, error) {
 				if haveData {
 					return strings.Join(data, "\n"), nil
 				}
-				// blank line outside an event; keep reading
+				// blank line outside an event; the next event starts
+				// with a fresh budget
+				remaining = maxEventBytes
 			case trimmed[0] == sseCommentByte:
 				// comment or keep-alive line
 			case strings.HasPrefix(trimmed, sseDataPrefix):
@@ -124,11 +139,38 @@ func (r *streamReader) nextEvent() (string, error) {
 	}
 }
 
+// readLine returns one line including its terminator, charging its size
+// against the per-event budget. ReadSlice keeps the buffered reader from
+// accumulating a never-terminated line the way ReadString would; pieces
+// are reassembled here under the budget.
+func (r *streamReader) readLine(remaining *int) (string, error) {
+	var line []byte
+	for {
+		chunk, err := r.br.ReadSlice('\n')
+		*remaining -= len(chunk)
+		if *remaining < 0 {
+			return "", errEventTooLarge
+		}
+		line = append(line, chunk...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return string(line), err
+	}
+}
+
 func (r *streamReader) recvError(err error, userClosed bool) error {
 	switch {
 	case errors.Is(err, io.EOF):
 		// upstream ended without [DONE]; treat as a normal end of stream
 		return io.EOF
+	case errors.Is(err, errEventTooLarge):
+		return &providers.ProviderError{
+			Provider: r.provider,
+			Class:    providers.ErrClassUpstream,
+			Message:  fmt.Sprintf("upstream SSE event exceeds %d byte limit", maxEventBytes),
+			Err:      err,
+		}
 	case errors.Is(err, context.DeadlineExceeded) || r.ctx.Err() == context.DeadlineExceeded:
 		return &providers.ProviderError{
 			Provider: r.provider,

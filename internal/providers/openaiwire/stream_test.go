@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,6 +194,47 @@ func TestChatStreamCancelMidStream(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("upstream handler still running; body not closed")
 	}
+}
+
+func TestChatStreamOversizedEventRejected(t *testing.T) {
+	// The stream reader caps a single SSE event at 1 MiB; transport
+	// buffering adds slack on top of what the client actually consumed.
+	const (
+		capBytes   = 1 << 20
+		writeSlack = 15 << 20
+	)
+	// One data line that never ends; an unbounded reader would buffer it
+	// whole and never return from Recv.
+	upstream, written, done := floodUpstream(t, "text/event-stream", "data: ")
+
+	p := openaiwire.New("groq", upstream.URL, "k", nil)
+	reader, err := p.ChatStream(context.Background(), chatReq())
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	defer reader.Close()
+
+	recvErr := make(chan error, 1)
+	go func() {
+		_, err := reader.Recv()
+		recvErr <- err
+	}()
+
+	select {
+	case err := <-recvErr:
+		pe := assertClass(t, err, providers.ErrClassUpstream)
+		if !strings.Contains(pe.Message, "1048576") {
+			t.Errorf("Message = %q, want the byte limit named", pe.Message)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Recv did not return; unbounded event read")
+	}
+
+	// A failed Recv tears down the body, so EOF must be sticky after it.
+	if _, err := reader.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("Recv after oversized event = %v, want io.EOF", err)
+	}
+	awaitFloodStopped(t, written, done, capBytes+writeSlack)
 }
 
 func TestStreamReaderCloseSemantics(t *testing.T) {

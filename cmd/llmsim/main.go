@@ -16,7 +16,15 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/llmsim"
 )
 
-const shutdownGrace = 5 * time.Second
+const (
+	shutdownGrace = 5 * time.Second
+
+	// Slow-loris guards. WriteTimeout stays unset on purpose: it would
+	// sever long-lived SSE streams mid-flight.
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 30 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
 
 func main() {
 	listen := flag.String("listen", ":8089", "address to listen on")
@@ -45,7 +53,13 @@ func main() {
 		FailHang:  *failHang,
 		FailCut:   *failCut,
 	})
-	srv := &http.Server{Addr: *listen, Handler: sim}
+	srv := &http.Server{
+		Addr:              *listen,
+		Handler:           sim,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

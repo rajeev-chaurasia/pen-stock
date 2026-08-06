@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // Usage is the token accounting reported by a provider for one completion.
@@ -31,13 +32,25 @@ type ChatResponse struct {
 
 // StreamChunk is one SSE event payload from a streaming completion.
 // Usage is non-nil only on the chunk where the provider reports totals.
+// A Keepalive chunk carries no data: it reports that the upstream is
+// alive but still working, which some backends signal with SSE comments
+// during a long time to first token.
 type StreamChunk struct {
-	Data  []byte
-	Usage *Usage
+	Data      []byte
+	Usage     *Usage
+	Keepalive bool
 }
 
-// StreamReader yields chunks until io.EOF. Close is safe to call twice
-// and must release the underlying connection.
+// ErrStreamTruncated reports an upstream stream that ended without its
+// terminating [DONE] sentinel. On the OpenAI wire that sentinel is the
+// only completeness signal, so this must never be reported as io.EOF:
+// callers would relay a partial answer as a whole one.
+var ErrStreamTruncated = errors.New("upstream stream ended without the [DONE] sentinel")
+
+// StreamReader yields chunks until a terminal error. io.EOF means the
+// upstream sent [DONE] and the completion is whole; ErrStreamTruncated
+// means it is not. Close is safe to call twice and must release the
+// underlying connection.
 type StreamReader interface {
 	Recv() (StreamChunk, error)
 	Close() error

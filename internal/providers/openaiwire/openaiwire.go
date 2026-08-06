@@ -23,6 +23,11 @@ const (
 	// build the error message.
 	maxErrorBody = 8 << 10
 
+	// maxResponseBytes caps a non-streaming upstream body. Chat
+	// completions run to a few MB at most, so 32 MiB is generous while
+	// keeping a hostile upstream from forcing unbounded allocation.
+	maxResponseBytes int64 = 32 << 20
+
 	defaultMaxIdleConnsPerHost = 32
 )
 
@@ -85,9 +90,18 @@ func (p *provider) Chat(ctx context.Context, req *providers.ChatRequest) (*provi
 	if !is2xx(resp.StatusCode) {
 		return nil, p.statusError(resp)
 	}
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the cap: a LimitReader hitting its limit is
+	// indistinguishable from EOF, so the extra byte reveals truncation.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, p.transportError(ctx, "read upstream response", err)
+	}
+	if int64(len(body)) > maxResponseBytes {
+		return nil, &providers.ProviderError{
+			Provider: p.name,
+			Class:    providers.ErrClassUpstream,
+			Message:  fmt.Sprintf("upstream response exceeds %d byte limit", maxResponseBytes),
+		}
 	}
 
 	// Usage parse is best effort: the body is forwarded verbatim, so a

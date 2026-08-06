@@ -381,12 +381,17 @@ func TestStreamIdleTimeoutAborts(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("stream ran %v; idle timeout not applied", elapsed)
 	}
-	want := "data: {\"n\":1}\n\n"
-	if string(body) != want {
-		t.Errorf("body = %q, want only the first frame %q", body, want)
+	first := "data: {\"n\":1}\n\n"
+	if !strings.HasPrefix(string(body), first) {
+		t.Errorf("body = %q, want it to start with the first frame %q", body, first)
 	}
 	if strings.Contains(string(body), "[DONE]") {
 		t.Error("aborted stream must not carry the [DONE] sentinel")
+	}
+	// The client is told why the stream stopped rather than being left
+	// to infer it from a severed connection.
+	if !strings.Contains(string(body), "stream_truncated") {
+		t.Errorf("body = %q, want a stream_truncated error frame", body)
 	}
 
 	// The gateway must have released the reader on abort.

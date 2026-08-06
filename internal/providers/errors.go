@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 )
@@ -38,6 +39,28 @@ func (e *ProviderError) Error() string {
 }
 
 func (e *ProviderError) Unwrap() error { return e.Err }
+
+// ClassFromStatusAndBody maps an upstream response to an ErrorClass,
+// using the body to disambiguate 404. A bare 404 from a mistyped
+// base_url is gateway misconfiguration, not a missing model, and
+// reporting it as model_not_found sends callers hunting the wrong bug.
+func ClassFromStatusAndBody(code int, body []byte) ErrorClass {
+	if code == http.StatusNotFound && !looksLikeErrorEnvelope(body) {
+		return ErrClassUpstream
+	}
+	return ClassFromStatus(code)
+}
+
+// looksLikeErrorEnvelope reports whether body is an OpenAI-style error
+// document rather than an HTML page or a router's plain text.
+func looksLikeErrorEnvelope(body []byte) bool {
+	var envelope struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	return json.Unmarshal(body, &envelope) == nil && envelope.Error != nil
+}
 
 // ClassFromStatus maps an upstream HTTP status to an ErrorClass.
 func ClassFromStatus(code int) ErrorClass {

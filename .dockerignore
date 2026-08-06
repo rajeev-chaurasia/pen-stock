@@ -2,3 +2,31 @@
 bin
 dist
 docs
+
+# Secrets and local config. The Dockerfile does COPY . ., so anything left here
+# lands in the builder layer even though the final image does not ship it.
+# A --target builder run or an exported BuildKit cache would expose it.
+.env
+.env.*
+**/.env
+**/.env.*
+config.yaml
+config.yml
+**/config.yaml
+**/config.yml
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/*.pfx
+id_rsa
+id_rsa.*
+.netrc
+credentials.json
+secrets.yaml
+secrets.yml

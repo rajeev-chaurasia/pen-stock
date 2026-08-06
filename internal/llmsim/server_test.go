@@ -390,3 +390,67 @@ func TestBadRequestBody(t *testing.T) {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
+
+func TestOversizedRequestBodyRejected(t *testing.T) {
+	ts := newSim(t, Options{Seed: 1})
+	// Valid JSON shape whose content pushes the body past the 1 MiB cap.
+	body := `{"model":"gpt-test","messages":[{"role":"user","content":"` +
+		strings.Repeat("a", int(maxRequestBodyBytes)+1) + `"}]}`
+
+	resp := postChat(t, ts.URL, body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", resp.StatusCode)
+	}
+	var eb errorBody
+	if err := json.NewDecoder(resp.Body).Decode(&eb); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if !strings.Contains(eb.Error.Message, fmt.Sprint(maxRequestBodyBytes)) {
+		t.Errorf("error message %q does not name the byte limit", eb.Error.Message)
+	}
+}
+
+func TestHangSaturationSheds503(t *testing.T) {
+	// TimeScale 1 keeps the single permitted hang pinned for the whole
+	// test; the second request must be shed immediately, not queued.
+	sim := New(Options{Seed: 1, FailHang: 1, MaxConcurrentHangs: 1, TimeScale: 1})
+	ts := httptest.NewServer(sim)
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/v1/chat/completions", strings.NewReader(chatBody))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	go func() {
+		// Hangs until cancel releases it at test end.
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	// The hanging request owns the slot once the semaphore fills.
+	deadline := time.Now().Add(3 * time.Second)
+	for len(sim.hangSlots) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("first request never occupied the hang slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	resp := postChat(t, ts.URL, chatBody)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 while hang slots are saturated", resp.StatusCode)
+	}
+	var eb errorBody
+	if err := json.NewDecoder(resp.Body).Decode(&eb); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if eb.Error.Message == "" || eb.Error.Type == "" {
+		t.Errorf("incomplete error body: %+v", eb)
+	}
+}

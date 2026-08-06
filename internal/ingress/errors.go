@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
@@ -23,7 +24,29 @@ const (
 	// msgUpstreamAuth deliberately hides upstream auth details: a bad
 	// provider key is gateway misconfiguration, not the caller's problem.
 	msgUpstreamAuth = "upstream auth failed"
+
+	// maxRelayedMessage caps how much upstream text can reach a client on
+	// the one class where relaying it is useful.
+	maxRelayedMessage = 512
 )
+
+// secretPattern matches text that must never be relayed to a client:
+// bearer tokens, common provider key prefixes, and bare private IPs that
+// upstream proxies like to name in their error pages.
+var secretPattern = regexp.MustCompile(
+	`(?i)(bearer\s+\S+|\b(sk|gsk|xai|api)[-_][A-Za-z0-9._-]{8,}|\b(?:10|127|192\.168|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}(?::\d+)?)`)
+
+const redacted = "[redacted]"
+
+// sanitizeUpstreamMessage strips secrets and internal addresses from
+// upstream text and shortens it to something a client can act on.
+func sanitizeUpstreamMessage(msg string) string {
+	clean := secretPattern.ReplaceAllString(msg, redacted)
+	if len(clean) > maxRelayedMessage {
+		clean = clean[:maxRelayedMessage] + "..."
+	}
+	return clean
+}
 
 type errorBody struct {
 	Message string `json:"message"`
@@ -63,14 +86,46 @@ func (s *Server) writeUpstreamError(w http.ResponseWriter, err error) {
 	}
 
 	status, errType, code := classToWire(pe.Class)
-	msg := pe.Message
-	if pe.Class == providers.ErrClassAuth {
-		msg = msgUpstreamAuth
-	}
-	if msg == "" {
-		msg = string(pe.Class)
+
+	// The full upstream text stays server side. Clients get gateway
+	// authored wording, because upstream error pages routinely name
+	// internal hosts and can echo the request's own credentials.
+	s.log.Error("upstream failure",
+		"provider", pe.Provider,
+		"class", string(pe.Class),
+		"upstream_status", pe.StatusCode,
+		"message", pe.Message,
+		"error", pe.Err,
+	)
+
+	msg := classMessage(pe.Class)
+	if pe.Class == providers.ErrClassInvalidRequest && pe.Message != "" {
+		// A rejected request is the one case where upstream detail helps
+		// the caller fix their own payload.
+		msg = sanitizeUpstreamMessage(pe.Message)
 	}
 	writeErrorJSON(w, status, msg, errType, code)
+}
+
+func classMessage(c providers.ErrorClass) string {
+	switch c {
+	case providers.ErrClassAuth:
+		return msgUpstreamAuth
+	case providers.ErrClassRateLimited:
+		return "upstream rate limit reached"
+	case providers.ErrClassInvalidRequest:
+		return "upstream rejected the request"
+	case providers.ErrClassModelNotFound:
+		return "the requested model is not available upstream"
+	case providers.ErrClassUpstream:
+		return "upstream is unavailable"
+	case providers.ErrClassTimeout:
+		return "upstream timed out"
+	case providers.ErrClassCanceled:
+		return "request canceled"
+	default:
+		return "internal error"
+	}
 }
 
 func classToWire(c providers.ErrorClass) (status int, errType, code string) {

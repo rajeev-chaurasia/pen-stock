@@ -8,21 +8,33 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
 const (
-	// maxBodyBytes caps client request bodies at 10MB.
-	maxBodyBytes int64 = 10 << 20
+	// maxBodyBytes caps client request bodies. A chat payload with a
+	// long conversation still fits well inside this.
+	maxBodyBytes int64 = 1 << 20
 
 	ssePrefix     = "data: "
 	sseTerminator = "\n\n"
 	sseDoneFrame  = "data: [DONE]\n\n"
+	// sseKeepaliveFrame is an SSE comment: it keeps intermediaries from
+	// timing out a connection during a long time to first token, and
+	// clients ignore it.
+	sseKeepaliveFrame = ": keep-alive\n\n"
 
 	contentTypeJSON = "application/json"
 	contentTypeSSE  = "text/event-stream"
+
+	headerNoSniff = "nosniff"
+
+	// terminalWriteBudget bounds the final frame of a stream, which must
+	// outlive whatever deadline the preceding chunk left behind.
+	terminalWriteBudget = 2 * time.Second
 )
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +105,7 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 	}
 	s.metrics.AddTokens(prov.Name(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	w.Header().Set("Content-Type", contentTypeJSON)
+	w.Header().Set("X-Content-Type-Options", headerNoSniff)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resp.Body)
 }
@@ -103,20 +116,41 @@ type recvResult struct {
 }
 
 func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	flusher := flusherFor(w)
+	if flusher == nil {
 		writeErrorJSON(w, http.StatusInternalServerError,
 			"streaming is not supported by this server", errTypeAPI, "streaming_unsupported")
 		return
 	}
 
 	// Child of the request context: client disconnect cancels upstream,
-	// and so does the idle-timeout abort below.
+	// and so do the timeouts below.
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	// The wait for response headers needs its own bound. The idle timer
+	// cannot cover it because it only starts once headers arrive, so an
+	// upstream that accepts a connection and says nothing would hang the
+	// request forever.
+	var headerTimedOut atomic.Bool
+	if upstream := msToDuration(s.cfg.UpstreamTimeoutMS); upstream > 0 {
+		headerTimer := time.AfterFunc(upstream, func() {
+			headerTimedOut.Store(true)
+			cancel()
+		})
+		defer headerTimer.Stop()
+	}
+
 	reader, err := prov.ChatStream(ctx, req)
 	if err != nil {
+		if headerTimedOut.Load() {
+			err = &providers.ProviderError{
+				Provider: prov.Name(),
+				Class:    providers.ErrClassTimeout,
+				Message:  "upstream did not send response headers in time",
+				Err:      err,
+			}
+		}
 		s.writeUpstreamError(w, err)
 		return
 	}
@@ -126,6 +160,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	h.Set("Content-Type", contentTypeSSE)
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Connection", "keep-alive")
+	h.Set("X-Content-Type-Options", headerNoSniff)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -142,31 +177,54 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	}
 
 	info := logInfoFrom(r.Context())
-	firstChunk := true
+	rc := http.NewResponseController(w)
+	firstData := true
+
+	// Providers differ on how often they report usage: some send it once
+	// at the end, some repeat cumulative totals on every chunk. Keeping
+	// only the last report and recording it at stream end is correct for
+	// both, where summing would multiply the count.
+	var lastUsage *providers.Usage
+	defer func() {
+		if lastUsage != nil {
+			s.metrics.AddTokens(prov.Name(), lastUsage.PromptTokens, lastUsage.CompletionTokens)
+		}
+	}()
 
 	for {
 		select {
 		case res := <-results:
 			if res.err != nil {
-				// io.EOF is the clean end; anything else aborts mid-stream
-				// and the client sees truncation without [DONE].
-				if errors.Is(res.err, io.EOF) {
-					_, _ = io.WriteString(w, sseDoneFrame)
-					flusher.Flush()
-				}
+				s.finishStream(w, flusher, prov.Name(), res.err)
 				return
-			}
-			if firstChunk {
-				firstChunk = false
-				if !info.start.IsZero() {
-					s.metrics.ObserveTTFT(prov.Name(), time.Since(info.start).Seconds())
-				}
 			}
 			if res.chunk.Usage != nil {
-				s.metrics.AddTokens(prov.Name(), res.chunk.Usage.PromptTokens, res.chunk.Usage.CompletionTokens)
+				lastUsage = res.chunk.Usage
 			}
-			if err := writeSSEFrame(w, res.chunk.Data); err != nil {
-				return
+
+			// A stalled client must not pin this goroutine and its
+			// upstream connection indefinitely, so every write carries
+			// the same budget the upstream gets.
+			if idle > 0 {
+				_ = rc.SetWriteDeadline(time.Now().Add(idle))
+			}
+
+			if res.chunk.Keepalive {
+				// Upstream is alive but still working. Reset the idle
+				// budget and keep the client connection warm.
+				if _, err := io.WriteString(w, sseKeepaliveFrame); err != nil {
+					return
+				}
+			} else {
+				if firstData {
+					firstData = false
+					if !info.start.IsZero() {
+						s.metrics.ObserveTTFT(prov.Name(), time.Since(info.start).Seconds())
+					}
+				}
+				if err := writeSSEFrame(w, res.chunk.Data); err != nil {
+					return
+				}
 			}
 			flusher.Flush()
 			if idleTimer != nil {
@@ -176,6 +234,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 			// Upstream went quiet past its budget; kill the call.
 			cancel()
 			_ = reader.Close()
+			s.finishStream(w, flusher, prov.Name(), providers.ErrStreamTruncated)
 			return
 		case <-ctx.Done():
 			// Client went away; release the upstream promptly.
@@ -185,10 +244,61 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	}
 }
 
+// finishStream terminates the SSE response. [DONE] is written only when
+// the upstream actually completed: on the OpenAI wire that sentinel is
+// the sole completeness signal, so emitting it for a severed stream
+// would present a partial answer as a whole one.
+func (s *Server) finishStream(w http.ResponseWriter, flusher http.Flusher, provider string, cause error) {
+	// The last chunk's write deadline may already be spent, which would
+	// sink the terminal frame and leave the client guessing.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(terminalWriteBudget))
+
+	if errors.Is(cause, io.EOF) {
+		_, _ = io.WriteString(w, sseDoneFrame)
+		flusher.Flush()
+		return
+	}
+
+	s.log.Error("stream ended early", "provider", provider, "error", cause)
+	frame, err := json.Marshal(errorEnvelope{Error: errorBody{
+		Message: "upstream stream ended before completion",
+		Type:    errTypeAPI,
+		Code:    "stream_truncated",
+	}})
+	if err != nil {
+		return
+	}
+	_ = writeSSEFrame(w, frame)
+	flusher.Flush()
+}
+
+// flusherFor reports the writer's real flushing ability. The access log
+// wrapper always defines Flush, so a plain type assertion would claim
+// streaming works even when the underlying writer cannot flush.
+func flusherFor(w http.ResponseWriter) http.Flusher {
+	if fw, ok := w.(interface{ Flusher() http.Flusher }); ok {
+		return fw.Flusher()
+	}
+	if f, ok := w.(http.Flusher); ok {
+		return f
+	}
+	return nil
+}
+
 // pumpStream forwards Recv results one at a time until a terminal error
 // or until nobody is listening. Only a single chunk is ever in flight,
 // so the response is never buffered whole.
 func pumpStream(ctx context.Context, reader providers.StreamReader, out chan<- recvResult) {
+	// This goroutine is not owned by net/http, so an unrecovered panic
+	// here would take the whole process down with it.
+	defer func() {
+		if rec := recover(); rec != nil {
+			select {
+			case out <- recvResult{err: fmt.Errorf("stream reader panicked: %v", rec)}:
+			case <-ctx.Done():
+			}
+		}
+	}()
 	for {
 		chunk, err := reader.Recv()
 		select {

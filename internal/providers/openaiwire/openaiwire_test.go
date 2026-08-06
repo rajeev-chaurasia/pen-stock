@@ -1,6 +1,7 @@
 package openaiwire_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,84 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers/openaiwire"
 )
+
+// floodUpstream serves prelude and then an endless run of 'a' bytes,
+// counting what it managed to write. The write loop only ends when the
+// client tears the connection down, so written and done together show
+// whether the client stopped reading.
+func floodUpstream(t *testing.T, contentType, prelude string) (ts *httptest.Server, written *atomic.Int64, done chan struct{}) {
+	t.Helper()
+	written = &atomic.Int64{}
+	done = make(chan struct{})
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(done)
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", contentType)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("upstream writer is not a flusher")
+			return
+		}
+		if _, err := io.WriteString(w, prelude); err != nil {
+			return
+		}
+		written.Add(int64(len(prelude)))
+		filler := bytes.Repeat([]byte("a"), 8<<10)
+		for {
+			n, err := w.Write(filler)
+			written.Add(int64(n))
+			if err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts, written, done
+}
+
+// awaitFloodStopped fails unless the flooding handler exits promptly and
+// wrote no more than limit bytes, proving the client stopped reading near
+// its cap instead of buffering the flood.
+func awaitFloodStopped(t *testing.T, written *atomic.Int64, done chan struct{}, limit int64) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream still writing; response body was not closed")
+	}
+	if got := written.Load(); got > limit {
+		t.Errorf("upstream wrote %d bytes, want at most %d; read did not stop near the cap", got, limit)
+	}
+}
+
+func TestChatOversizedBodyRejected(t *testing.T) {
+	// The provider caps a non-stream body at 32 MiB; transport buffering
+	// adds slack on top of what the client actually consumed.
+	const (
+		capBytes   = 32 << 20
+		writeSlack = 32 << 20
+	)
+	upstream, written, done := floodUpstream(t, "application/json", `{"choices":[`)
+
+	p := openaiwire.New("groq", upstream.URL, "k", nil)
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := p.Chat(context.Background(), chatReq())
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		pe := assertClass(t, err, providers.ErrClassUpstream)
+		if !strings.Contains(pe.Message, "33554432") {
+			t.Errorf("Message = %q, want the byte limit named", pe.Message)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Chat did not return; unbounded body read")
+	}
+	awaitFloodStopped(t, written, done, capBytes+writeSlack)
+}
 
 func chatReq() *providers.ChatRequest {
 	return &providers.ChatRequest{

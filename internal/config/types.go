@@ -30,7 +30,9 @@ type ProviderConfig struct {
 	BaseURL string       `yaml:"base_url"`
 	// APIKey supports ${ENV_VAR} expansion at load time so keys never
 	// live in the config file itself.
-	APIKey string   `yaml:"api_key"`
+	APIKey string `yaml:"api_key"`
+	// Models restricts which route models this provider may serve.
+	// Empty means unrestricted: any route may target the provider.
 	Models []string `yaml:"models"`
 }
 

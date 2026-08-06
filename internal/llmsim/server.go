@@ -3,6 +3,7 @@ package llmsim
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -27,6 +28,13 @@ const (
 
 	retryAfterSeconds = "2"
 	hangTimeout       = 5 * time.Minute
+
+	// maxRequestBodyBytes caps a chat request body; larger bodies get 413.
+	maxRequestBodyBytes int64 = 1 << 20
+
+	// defaultMaxConcurrentHangs bounds connections pinned by hang mode so
+	// failure injection under load cannot exhaust file descriptors.
+	defaultMaxConcurrentHangs int = 64
 )
 
 // wordlist feeds generated completion text; realism of the prose is not a goal.
@@ -48,6 +56,9 @@ type Options struct {
 	Fail429  float64
 	FailHang float64
 	FailCut  float64
+	// MaxConcurrentHangs bounds simultaneously hanging connections;
+	// 0 means defaultMaxConcurrentHangs. Saturation answers 503.
+	MaxConcurrentHangs int
 }
 
 // Server is a deterministic OpenAI-compatible mock provider.
@@ -55,6 +66,8 @@ type Server struct {
 	opts Options
 	mux  *http.ServeMux
 	next atomic.Int64
+	// hangSlots is a semaphore over connections pinned by hang mode.
+	hangSlots chan struct{}
 }
 
 // New builds a Server; a zero Profile falls back to DefaultProfile.
@@ -65,7 +78,10 @@ func New(cfg Options) *Server {
 	if cfg.Profile == (Profile{}) {
 		cfg.Profile = DefaultProfile
 	}
-	s := &Server{opts: cfg}
+	if cfg.MaxConcurrentHangs <= 0 {
+		cfg.MaxConcurrentHangs = defaultMaxConcurrentHangs
+	}
+	s := &Server{opts: cfg, hangSlots: make(chan struct{}, cfg.MaxConcurrentHangs)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/chat/completions", s.handleChat)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
@@ -205,7 +221,15 @@ type errorBody struct {
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("request body exceeds %d bytes", tooLarge.Limit),
+				"invalid_request_error", "request_too_large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error(), "invalid_request_error", "invalid_request_error")
 		return
 	}
@@ -337,8 +361,18 @@ func writeEvent(w http.ResponseWriter, rc *http.ResponseController, chunk chatRe
 }
 
 // hang holds the connection open with nothing written until the client goes
-// away or the (scaled) timeout elapses, then drops it.
+// away or the (scaled) timeout elapses, then drops it. Slots are bounded;
+// at saturation the request is shed with 503 instead of pinning another
+// goroutine and connection.
 func (s *Server) hang(w http.ResponseWriter, r *http.Request) {
+	select {
+	case s.hangSlots <- struct{}{}:
+	default:
+		writeError(w, http.StatusServiceUnavailable, "simulated hang capacity exhausted", "server_error", "hang_capacity_exhausted")
+		return
+	}
+	defer func() { <-s.hangSlots }()
+
 	limit := time.Duration(float64(hangTimeout) * s.opts.TimeScale)
 	if sleepCtx(r.Context(), limit) {
 		abort(w)

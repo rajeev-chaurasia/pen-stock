@@ -232,6 +232,54 @@ func TestValidate(t *testing.T) {
 			wantContains: []string{`route "llama-3.3-70b-versatile": provider "ghost" is not declared`},
 		},
 		{
+			name:         "negative read timeout",
+			mutate:       func(c *Config) { c.Server.ReadTimeoutMS = -1 },
+			wantContains: []string{"server: read_timeout_ms is -1"},
+		},
+		{
+			name:         "negative upstream timeout",
+			mutate:       func(c *Config) { c.Server.UpstreamTimeoutMS = -50 },
+			wantContains: []string{"server: upstream_timeout_ms is -50"},
+		},
+		{
+			name:         "negative stream idle timeout",
+			mutate:       func(c *Config) { c.Server.StreamIdleTimeoutMS = -1 },
+			wantContains: []string{"server: stream_idle_timeout_ms is -1"},
+		},
+		{
+			name:         "read timeout over max",
+			mutate:       func(c *Config) { c.Server.ReadTimeoutMS = MaxTimeoutMS + 1 },
+			wantContains: []string{"server: read_timeout_ms is 3600001, must be at most 3600000"},
+		},
+		{
+			name:         "upstream timeout over max",
+			mutate:       func(c *Config) { c.Server.UpstreamTimeoutMS = MaxTimeoutMS + 1 },
+			wantContains: []string{"server: upstream_timeout_ms is 3600001, must be at most 3600000"},
+		},
+		{
+			name:         "stream idle timeout over max",
+			mutate:       func(c *Config) { c.Server.StreamIdleTimeoutMS = MaxTimeoutMS + 1 },
+			wantContains: []string{"server: stream_idle_timeout_ms is 3600001, must be at most 3600000"},
+		},
+		{
+			name:         "empty api_key",
+			mutate:       func(c *Config) { c.Providers[0].APIKey = "" },
+			wantContains: []string{`provider "groq": api_key is required`},
+		},
+		{
+			name: "route model outside the provider models list",
+			mutate: func(c *Config) {
+				c.Providers[0].Models = []string{"other-model"}
+			},
+			wantContains: []string{`route "llama-3.3-70b-versatile": provider "groq" does not list model "llama-3.3-70b-versatile"`},
+		},
+		{
+			name: "route model inside the provider models list passes",
+			mutate: func(c *Config) {
+				c.Providers[0].Models = []string{"llama-3.3-70b-versatile", "other-model"}
+			},
+		},
+		{
 			name:         "invalid log level",
 			mutate:       func(c *Config) { c.Telemetry.LogLevel = "verbose" },
 			wantContains: []string{`log_level "verbose" must be one of debug, info, warn, error`},
@@ -298,5 +346,21 @@ func TestExpandAPIKeyEmbedded(t *testing.T) {
 	}
 	if got, want := cfg.Providers[0].APIKey, "pre-middle-post"; got != want {
 		t.Errorf("APIKey = %q, want %q", got, want)
+	}
+}
+
+// A set-but-empty variable must fail the same way as an unset one, or a
+// ${VAR:-} compose default boots the gateway with an empty key.
+func TestExpandAPIKeyEmptyEnv(t *testing.T) {
+	t.Setenv("PENSTOCK_TEST_EMPTY_VAR", "")
+
+	cfg := validConfig()
+	cfg.Providers[0].APIKey = "${PENSTOCK_TEST_EMPTY_VAR}"
+	err := cfg.expandAPIKeys()
+	if !errors.Is(err, ErrMissingEnv) {
+		t.Fatalf("expandAPIKeys = %v, want ErrMissingEnv", err)
+	}
+	if !strings.Contains(err.Error(), "PENSTOCK_TEST_EMPTY_VAR") {
+		t.Errorf("error %q does not name the variable", err)
 	}
 }
