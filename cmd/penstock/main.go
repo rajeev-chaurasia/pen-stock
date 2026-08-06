@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/rajeev-chaurasia/pen-stock/internal/admin"
 	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
 	"github.com/rajeev-chaurasia/pen-stock/internal/config"
 	"github.com/rajeev-chaurasia/pen-stock/internal/ingress"
@@ -92,7 +93,7 @@ func run() error {
 
 	metrics := obs.NewMetrics()
 	gateway := ingress.NewServer(cfg.Server, routes, log,
-		ingress.WithAccounting(accounting),
+		ingress.WithAccounting(accounting.requestPath()),
 		ingress.WithMetrics(metrics),
 		ingress.WithClientKeys(cfg.Auth.ClientKeys),
 		ingress.WithTenantKeys(tenantKeys(cfg)),
@@ -114,7 +115,13 @@ func run() error {
 	// data rather than caller data, so they get their own listener.
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /metrics", metrics.Handler())
-	admin := &http.Server{
+	// The metrics pattern is more specific and keeps winning; everything
+	// else falls through to the tenant API, which answers a JSON 404 for
+	// paths it does not know rather than an HTML default.
+	if h := accounting.adminHandler(); h != nil {
+		adminMux.Handle("/", h)
+	}
+	adminSrv := &http.Server{
 		Addr:              cfg.Server.AdminListen,
 		Handler:           adminMux,
 		ReadHeaderTimeout: readTimeout,
@@ -137,14 +144,14 @@ func run() error {
 
 	errCh := make(chan error, 2)
 	go func() { errCh <- srv.ListenAndServe() }()
-	go func() { errCh <- admin.ListenAndServe() }()
+	go func() { errCh <- adminSrv.ListenAndServe() }()
 
 	select {
 	case <-ctx.Done():
 		log.Info("penstock draining")
 		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
-		_ = admin.Shutdown(drainCtx)
+		_ = adminSrv.Shutdown(drainCtx)
 		return srv.Shutdown(drainCtx)
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -196,7 +203,7 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 // when no tenant declares a limit worth enforcing. A gateway without
 // budgeting must still serve, so nil here means metering is off rather
 // than being an error.
-func buildAccounting(cfg *config.Config, kindOf func(string) string) (ingress.Accountant, error) {
+func buildAccounting(cfg *config.Config, kindOf func(string) string) (*accounting, error) {
 	limits := make(map[budget.TenantID]budget.Limits, len(cfg.Auth.Tenants))
 	for _, t := range cfg.Auth.Tenants {
 		limits[budget.TenantID(t.Name)] = budget.Limits{
@@ -215,12 +222,45 @@ func buildAccounting(cfg *config.Config, kindOf func(string) string) (ingress.Ac
 	if err != nil {
 		return nil, fmt.Errorf("load price table: %w", err)
 	}
-	return budget.NewGuard(budget.GuardOptions{
-		Estimator: budget.NewEstimator(prices, kindOf, budget.EstimatorOptions{}),
-		Enforcer:  budget.NewEnforcer(limits, nil),
-		Prices:    prices,
-		KindOf:    kindOf,
-	}), nil
+	enforcer := budget.NewEnforcer(limits, nil)
+	return &accounting{
+		guard: budget.NewGuard(budget.GuardOptions{
+			Estimator: budget.NewEstimator(prices, kindOf, budget.EstimatorOptions{}),
+			Enforcer:  enforcer,
+			Prices:    prices,
+			KindOf:    kindOf,
+		}),
+		enforcer: enforcer,
+		limits:   limits,
+	}, nil
+}
+
+// accounting keeps the enforcer beside the guard that wraps it, because
+// the admin API reads the same counters the request path writes. Handing
+// the API its own enforcer would let it report balances nobody is
+// actually enforcing.
+type accounting struct {
+	guard    ingress.Accountant
+	enforcer *budget.MemEnforcer
+	limits   map[budget.TenantID]budget.Limits
+}
+
+// requestPath reports the accountant the ingress should use, or nil when
+// no tenant is configured.
+func (a *accounting) requestPath() ingress.Accountant {
+	if a == nil {
+		return nil
+	}
+	return a.guard
+}
+
+// adminHandler serves tenant balances, or nil when there is nothing to
+// report.
+func (a *accounting) adminHandler() http.Handler {
+	if a == nil {
+		return nil
+	}
+	return admin.New(a.enforcer, a.limits).Handler()
 }
 
 // modelKinds maps each routed model to the kind of the first provider
