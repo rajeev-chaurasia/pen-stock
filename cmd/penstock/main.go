@@ -21,6 +21,7 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/ingress"
 	"github.com/rajeev-chaurasia/pen-stock/internal/obs"
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
+	"github.com/rajeev-chaurasia/pen-stock/internal/router"
 
 	// Blank imports register each adapter's kinds with the factory. A
 	// missing one here means the kind is rejected at startup.
@@ -77,9 +78,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	routes := make(map[string]providers.Provider, len(cfg.Routes))
-	for _, route := range cfg.Routes {
-		routes[route.Model] = provs[route.Provider]
+	routes, err := buildRoutes(cfg, provs)
+	if err != nil {
+		return err
 	}
 
 	metrics := obs.NewMetrics()
@@ -142,6 +143,46 @@ func run() error {
 		}
 		return err
 	}
+}
+
+// buildRoutes turns each configured route into a provider, wrapping the
+// chain in a router so a single-provider route and a fallback chain
+// behave identically from the ingress side.
+func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[string]providers.Provider, error) {
+	// Health is shared across routes on purpose: a provider that is rate
+	// limited or broken is equally unusable for every model it serves,
+	// and learning that once is the point.
+	health := router.NewHealth(router.Options{}, nil)
+
+	routes := make(map[string]providers.Provider, len(cfg.Routes))
+	for _, route := range cfg.Routes {
+		chain := make([]providers.Provider, 0, len(route.Chain()))
+		for _, name := range route.Chain() {
+			p, ok := provs[name]
+			if !ok {
+				return nil, fmt.Errorf("route %q: provider %q was not built", route.Model, name)
+			}
+			chain = append(chain, p)
+		}
+
+		selector, err := router.NewSelector(router.Strategy(strategyOrDefault(route.Strategy)))
+		if err != nil {
+			return nil, fmt.Errorf("route %q: %w", route.Model, err)
+		}
+		routed, err := router.New(route.Model, chain, health, selector, router.Options{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		routes[route.Model] = routed
+	}
+	return routes, nil
+}
+
+func strategyOrDefault(s string) string {
+	if s == "" {
+		return config.StrategyPriority
+	}
+	return s
 }
 
 // withSpan opens one span per request. Provider-level child spans arrive

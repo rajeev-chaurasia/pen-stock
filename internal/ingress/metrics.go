@@ -9,6 +9,31 @@ type MetricsSink interface {
 	AddTokens(provider string, prompt, completion int)
 }
 
+// streamAnswerer is implemented by a stream reader that knows which
+// upstream produced it. A routed model can be served by any provider in
+// its fallback chain, and cost belongs to whoever actually answered.
+type streamAnswerer interface {
+	AnsweringProvider() string
+}
+
+// providerOfStream reports the upstream behind a reader, or empty when
+// the reader does not track one.
+func providerOfStream(r any) string {
+	if a, ok := r.(streamAnswerer); ok {
+		return a.AnsweringProvider()
+	}
+	return ""
+}
+
+// answeringProvider prefers the upstream that answered and falls back to
+// the route label when nothing more specific is known.
+func answeringProvider(routeLabel, answered string) string {
+	if answered != "" {
+		return answered
+	}
+	return routeLabel
+}
+
 type noopSink struct{}
 
 func (noopSink) ObserveRequest(string, string, string, float64, bool) {}

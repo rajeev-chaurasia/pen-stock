@@ -284,3 +284,7 @@ func (t *timedReader) Recv() (providers.StreamChunk, error) {
 }
 
 func (t *timedReader) Close() error { return t.inner.Close() }
+
+// AnsweringProvider names the upstream serving this stream, so cost and
+// latency land on it rather than on the routed model's label.
+func (t *timedReader) AnsweringProvider() string { return t.provider }

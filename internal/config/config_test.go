@@ -224,7 +224,7 @@ func TestValidate(t *testing.T) {
 		{
 			name:         "empty route provider",
 			mutate:       func(c *Config) { c.Routes[0].Provider = "" },
-			wantContains: []string{`route "llama-3.3-70b-versatile": provider is required`},
+			wantContains: []string{`route "llama-3.3-70b-versatile": provider or providers is required`},
 		},
 		{
 			name:         "route references undeclared provider",

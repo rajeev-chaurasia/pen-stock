@@ -103,7 +103,12 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 		s.writeUpstreamError(w, err)
 		return
 	}
-	s.metrics.AddTokens(prov.Name(), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	// A routed model can be served by any provider in its chain, so cost
+	// and latency are attributed to whoever actually answered rather
+	// than to the route's label.
+	answered := answeringProvider(prov.Name(), resp.Provider)
+	logInfoFrom(r.Context()).provider = answered
+	s.metrics.AddTokens(answered, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", headerNoSniff)
 	w.WriteHeader(http.StatusOK)
@@ -177,6 +182,8 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	}
 
 	info := logInfoFrom(r.Context())
+	answered := answeringProvider(prov.Name(), providerOfStream(reader))
+	info.provider = answered
 	rc := http.NewResponseController(w)
 	firstData := true
 
@@ -187,7 +194,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	var lastUsage *providers.Usage
 	defer func() {
 		if lastUsage != nil {
-			s.metrics.AddTokens(prov.Name(), lastUsage.PromptTokens, lastUsage.CompletionTokens)
+			s.metrics.AddTokens(answered, lastUsage.PromptTokens, lastUsage.CompletionTokens)
 		}
 	}()
 
@@ -195,7 +202,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		select {
 		case res := <-results:
 			if res.err != nil {
-				s.finishStream(w, flusher, prov.Name(), res.err)
+				s.finishStream(w, flusher, answered, res.err)
 				return
 			}
 			if res.chunk.Usage != nil {
@@ -219,7 +226,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 				if firstData {
 					firstData = false
 					if !info.start.IsZero() {
-						s.metrics.ObserveTTFT(prov.Name(), time.Since(info.start).Seconds())
+						s.metrics.ObserveTTFT(answered, time.Since(info.start).Seconds())
 					}
 				}
 				if err := writeSSEFrame(w, res.chunk.Data); err != nil {
@@ -234,7 +241,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 			// Upstream went quiet past its budget; kill the call.
 			cancel()
 			_ = reader.Close()
-			s.finishStream(w, flusher, prov.Name(), providers.ErrStreamTruncated)
+			s.finishStream(w, flusher, answered, providers.ErrStreamTruncated)
 			return
 		case <-ctx.Done():
 			// Client went away; release the upstream promptly.

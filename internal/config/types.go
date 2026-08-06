@@ -74,9 +74,39 @@ type ProviderConfig struct {
 }
 
 type RouteConfig struct {
-	Model    string `yaml:"model"`
+	Model string `yaml:"model"`
+	// Provider serves this model alone. Mutually exclusive with
+	// Providers: naming both leaves the intended order ambiguous.
 	Provider string `yaml:"provider"`
+	// Providers is a fallback chain, tried in the order written unless
+	// Strategy says otherwise.
+	Providers []string `yaml:"providers"`
+	// Strategy orders the chain. Empty means priority order.
+	Strategy string `yaml:"strategy"`
 }
+
+// Chain returns the providers serving this route, in configured order,
+// whichever spelling the operator used.
+func (r RouteConfig) Chain() []string {
+	if len(r.Providers) > 0 {
+		return r.Providers
+	}
+	if r.Provider != "" {
+		return []string{r.Provider}
+	}
+	return nil
+}
+
+// Route strategy names. These mirror the router package, which cannot
+// be imported here, so a test in the router package pins them together.
+const (
+	StrategyPriority     = "priority"
+	StrategyLeastLatency = "least_latency"
+	StrategyRoundRobin   = "round_robin"
+)
+
+// AllStrategies lists every accepted route strategy.
+var AllStrategies = []string{StrategyPriority, StrategyLeastLatency, StrategyRoundRobin}
 
 type TelemetryConfig struct {
 	ServiceName  string `yaml:"service_name"`

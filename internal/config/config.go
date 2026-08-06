@@ -256,15 +256,31 @@ func (c *Config) Validate() error {
 		}
 		routeModels[r.Model] = true
 
-		switch {
-		case r.Provider == "":
-			add("%s: provider is required", label)
-		case !providerNames[r.Provider]:
-			add("%s: provider %q is not declared under providers", label, r.Provider)
-		default:
-			if models := providerModels[r.Provider]; models != nil && !models[r.Model] {
-				add("%s: provider %q does not list model %q under models", label, r.Provider, r.Model)
+		if r.Provider != "" && len(r.Providers) > 0 {
+			add("%s: set either provider or providers, not both; naming both leaves the order ambiguous", label)
+		}
+		chain := r.Chain()
+		if len(chain) == 0 {
+			add("%s: provider or providers is required", label)
+		}
+
+		seen := make(map[string]bool, len(chain))
+		for _, name := range chain {
+			switch {
+			case seen[name]:
+				add("%s: provider %q appears twice in the chain", label, name)
+			case !providerNames[name]:
+				add("%s: provider %q is not declared under providers", label, name)
+			default:
+				if models := providerModels[name]; models != nil && !models[r.Model] {
+					add("%s: provider %q does not list model %q under models", label, name, r.Model)
+				}
 			}
+			seen[name] = true
+		}
+
+		if r.Strategy != "" && !slices.Contains(AllStrategies, r.Strategy) {
+			add("%s: strategy %q must be one of %v", label, r.Strategy, AllStrategies)
 		}
 	}
 
