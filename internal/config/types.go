@@ -34,11 +34,22 @@ var AllKinds = []ProviderKind{
 }
 
 type Config struct {
-	Server    ServerConfig     `yaml:"server"`
-	Auth      AuthConfig       `yaml:"auth"`
-	Providers []ProviderConfig `yaml:"providers"`
-	Routes    []RouteConfig    `yaml:"routes"`
-	Telemetry TelemetryConfig  `yaml:"telemetry"`
+	Server     ServerConfig     `yaml:"server"`
+	Auth       AuthConfig       `yaml:"auth"`
+	Accounting AccountingConfig `yaml:"accounting"`
+	Providers  []ProviderConfig `yaml:"providers"`
+	Routes     []RouteConfig    `yaml:"routes"`
+	Telemetry  TelemetryConfig  `yaml:"telemetry"`
+}
+
+// AccountingConfig controls the record of what was spent, as opposed to
+// the limits on spending it.
+type AccountingConfig struct {
+	// LedgerPath is where settled requests are appended as JSON lines.
+	// Empty disables the ledger, in which case spend is still enforced
+	// but only the running totals survive, and a restart forgets which
+	// requests produced them.
+	LedgerPath string `yaml:"ledger_path"`
 }
 
 type ServerConfig struct {

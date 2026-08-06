@@ -86,10 +86,11 @@ func run() error {
 		return err
 	}
 
-	accounting, err := buildAccounting(cfg, modelKinds(cfg))
+	accounting, err := buildAccounting(cfg, modelKinds(cfg), log)
 	if err != nil {
 		return err
 	}
+	defer accounting.shutdown()
 
 	metrics := obs.NewMetrics()
 	gateway := ingress.NewServer(cfg.Server, routes, log,
@@ -203,7 +204,7 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 // when no tenant declares a limit worth enforcing. A gateway without
 // budgeting must still serve, so nil here means metering is off rather
 // than being an error.
-func buildAccounting(cfg *config.Config, kindOf func(string) string) (*accounting, error) {
+func buildAccounting(cfg *config.Config, kindOf func(string) string, log *slog.Logger) (*accounting, error) {
 	limits := make(map[budget.TenantID]budget.Limits, len(cfg.Auth.Tenants))
 	for _, t := range cfg.Auth.Tenants {
 		limits[budget.TenantID(t.Name)] = budget.Limits{
@@ -222,6 +223,11 @@ func buildAccounting(cfg *config.Config, kindOf func(string) string) (*accountin
 	if err != nil {
 		return nil, fmt.Errorf("load price table: %w", err)
 	}
+	ledger, closeLedger, err := openLedger(cfg.Accounting.LedgerPath)
+	if err != nil {
+		return nil, err
+	}
+
 	enforcer := budget.NewEnforcer(limits, nil)
 	return &accounting{
 		guard: budget.NewGuard(budget.GuardOptions{
@@ -229,10 +235,31 @@ func buildAccounting(cfg *config.Config, kindOf func(string) string) (*accountin
 			Enforcer:  enforcer,
 			Prices:    prices,
 			KindOf:    kindOf,
+			Ledger:    ledger,
+			// A ledger that cannot be written is a silent hole in the
+			// audit trail, so it is reported rather than assumed empty.
+			OnLedgerError: func(err error) {
+				log.Error("cost ledger write failed", "error", err)
+			},
 		}),
 		enforcer: enforcer,
 		limits:   limits,
+		close:    closeLedger,
 	}, nil
+}
+
+// openLedger returns the cost ledger and a closer. An empty path means
+// no ledger, which keeps a local run from littering the working
+// directory with audit files nobody asked for.
+func openLedger(path string) (pricing.Ledger, func(), error) {
+	if path == "" {
+		return pricing.NopLedger{}, func() {}, nil
+	}
+	f, err := pricing.OpenFileLedger(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open cost ledger: %w", err)
+	}
+	return f, func() { _ = f.Close() }, nil
 }
 
 // accounting keeps the enforcer beside the guard that wraps it, because
@@ -243,6 +270,16 @@ type accounting struct {
 	guard    ingress.Accountant
 	enforcer *budget.MemEnforcer
 	limits   map[budget.TenantID]budget.Limits
+	close    func()
+}
+
+// shutdown flushes the cost ledger. Skipping it would lose whatever the
+// last writes left sitting in the OS page cache.
+func (a *accounting) shutdown() {
+	if a == nil || a.close == nil {
+		return
+	}
+	a.close()
 }
 
 // requestPath reports the accountant the ingress should use, or nil when
