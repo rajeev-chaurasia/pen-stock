@@ -1,0 +1,14 @@
+version: 0
+updated: "March 2026"
+
+models:
+  no-slash-here:
+    input_per_mtok: 1.00
+    output_per_mtok: 2.00
+  openai/negative:
+    input_per_mtok: -1.00
+    output_per_mtok: 2.00
+  openai/unpriced: {}
+  openai/free-but-priced:
+    input_per_mtok: 1.00
+    free: true

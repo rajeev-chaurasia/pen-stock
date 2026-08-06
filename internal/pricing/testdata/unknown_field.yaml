@@ -1,0 +1,9 @@
+version: 1
+updated: "2026-03-14"
+
+models:
+  openai/gpt-4o-mini:
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+    # A misspelled rate must fail loudly rather than price at zero.
+    input_per_1k: 0.00015
