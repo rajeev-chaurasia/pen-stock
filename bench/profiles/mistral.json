@@ -1,0 +1,23 @@
+{
+  "itl_ms": {
+    "mean": 13.31,
+    "p95": 23.36
+  },
+  "name": "mistral-small",
+  "output_tokens": {
+    "mean": 15,
+    "p95": 15
+  },
+  "recorded": {
+    "chunk_samples": 70,
+    "model": "mistral-small-latest",
+    "prompt": "Count slowly from one to twenty, one number per line.",
+    "provider_base_url": "https://api.mistral.ai/v1",
+    "recorded_at": "2026-08-06T20:10:40Z",
+    "samples": 5
+  },
+  "ttft_ms": {
+    "mean": 809.69,
+    "p95": 1532.31
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "itl_ms": {
+    "mean": 5.24,
+    "p95": 8.5
+  },
+  "name": "groq-llama-3.3-70b",
+  "output_tokens": {
+    "mean": 39,
+    "p95": 39
+  },
+  "recorded": {
+    "chunk_samples": 228,
+    "model": "llama-3.3-70b-versatile",
+    "prompt": "Count slowly from one to twenty, one number per line.",
+    "provider_base_url": "https://api.groq.com/openai/v1",
+    "recorded_at": "2026-08-06T20:09:30Z",
+    "samples": 6
+  },
+  "ttft_ms": {
+    "mean": 355.31,
+    "p95": 836.82
+  }
+}
