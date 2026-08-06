@@ -1,5 +1,7 @@
 // Package openaiwire adapts any backend speaking the OpenAI chat wire
-// protocol (Groq, llmsim, vLLM, and friends) to the providers contract.
+// protocol (OpenAI, Groq, Cerebras, Mistral, OpenRouter, llmsim, vLLM
+// and friends) to the providers contract. They share one implementation;
+// the little that differs per vendor lives in a profile.
 package openaiwire
 
 import (
@@ -31,29 +33,25 @@ const (
 	defaultMaxIdleConnsPerHost = 32
 )
 
-func init() {
-	providers.RegisterKind(config.KindGroq, fromConfig)
-	providers.RegisterKind(config.KindOpenAICompat, fromConfig)
-}
-
-func fromConfig(cfg config.ProviderConfig) (providers.Provider, error) {
-	if cfg.BaseURL == "" {
-		return nil, errors.New("base_url is required")
-	}
-	return New(cfg.Name, cfg.BaseURL, cfg.APIKey, nil), nil
-}
-
 type provider struct {
 	name    string
 	baseURL string
 	apiKey  string
+	profile profile
 	client  *http.Client
 }
 
-// New returns a Provider for an OpenAI-wire endpoint rooted at baseURL.
+// New returns a Provider for an OpenAI-wire endpoint rooted at baseURL,
+// with no vendor specific behavior: the bare wire format, which is what
+// a self hosted backend gets. Vendor quirks arrive through the profile
+// registry instead, keyed by config kind.
 // A nil client gets a dedicated pooled default so providers never share
 // transport state through a global.
 func New(name, baseURL, apiKey string, client *http.Client) providers.Provider {
+	return newWithProfile(name, baseURL, apiKey, profiles[config.KindOpenAICompat], client)
+}
+
+func newWithProfile(name, baseURL, apiKey string, prof profile, client *http.Client) providers.Provider {
 	if client == nil {
 		client = defaultClient()
 	}
@@ -61,6 +59,7 @@ func New(name, baseURL, apiKey string, client *http.Client) providers.Provider {
 		name:    name,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
+		profile: prof,
 		client:  client,
 	}
 }
@@ -120,7 +119,7 @@ func (p *provider) Chat(ctx context.Context, req *providers.ChatRequest) (*provi
 }
 
 func (p *provider) ChatStream(ctx context.Context, req *providers.ChatRequest) (providers.StreamReader, error) {
-	resp, err := p.post(ctx, req.Raw)
+	resp, err := p.post(ctx, withStreamUsage(req.Raw, p.profile))
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +139,11 @@ func (p *provider) post(ctx context.Context, raw json.RawMessage) (*http.Respons
 			Message:  "build upstream request",
 			Err:      fmt.Errorf("build upstream request: %w", err),
 		}
+	}
+	// Profile headers go first so nothing a vendor asks for can displace
+	// the credentials or the content type.
+	for name, value := range p.profile.headers {
+		httpReq.Header.Set(name, value)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)

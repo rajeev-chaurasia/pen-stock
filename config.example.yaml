@@ -33,7 +33,9 @@ providers:
     models:
       - llama-3.3-70b-versatile
 
-  # Local llmsim instance for development and load testing.
+  # Local llmsim instance for development and load testing. kind
+  # openai_compat is the one kind with no built-in endpoint: llmsim,
+  # vLLM and friends live wherever you put them, so base_url is required.
   - name: llmsim
     kind: openai_compat
     base_url: http://127.0.0.1:8089/v1
@@ -41,13 +43,82 @@ providers:
     models:
       - llmsim-small
 
+  # The remaining OpenAI-wire kinds are ready to use; they are commented
+  # out only because an ${ENV_VAR} that is unset fails the load, and this
+  # file has to load in a bare shell. Export the key, uncomment the
+  # provider and its route, and it works.
+  #
+  # Each base_url below repeats the default the adapter already knows for
+  # that kind, since config validation asks for the field either way.
+  # Change it to reach a proxy or a regional endpoint.
+  #
+  # Streaming requests to openai, groq, cerebras and openrouter are
+  # opted into upstream token usage automatically, because per-tenant
+  # budgets cannot bill what the upstream never reports. Mistral has no
+  # such option and is left alone.
+
+  # - name: openai
+  #   kind: openai
+  #   base_url: https://api.openai.com/v1
+  #   api_key: ${OPENAI_API_KEY}
+  #   models:
+  #     - gpt-4o-mini
+
+  # - name: cerebras
+  #   kind: cerebras
+  #   base_url: https://api.cerebras.ai/v1
+  #   api_key: ${CEREBRAS_API_KEY}
+  #   models:
+  #     - llama3.1-8b
+
+  # - name: mistral
+  #   kind: mistral
+  #   base_url: https://api.mistral.ai/v1
+  #   api_key: ${MISTRAL_API_KEY}
+  #   models:
+  #     - mistral-small-latest
+
+  # OpenRouter also receives HTTP-Referer and X-Title attribution
+  # headers, which the adapter sends on every call.
+  # - name: openrouter
+  #   kind: openrouter
+  #   base_url: https://openrouter.ai/api/v1
+  #   api_key: ${OPENROUTER_API_KEY}
+  #   models:
+  #     - anthropic/claude-3.5-haiku
+
+  # gemini and anthropic do not speak the OpenAI wire and land with their
+  # own adapters separately. Leave these off until those adapters ship:
+  # a kind with no adapter registered fails at startup, not at load.
+  # - name: gemini
+  #   kind: gemini
+  #   base_url: https://generativelanguage.googleapis.com/v1beta
+  #   api_key: ${GEMINI_API_KEY}
+  #   models:
+  #     - gemini-2.0-flash
+  # - name: anthropic
+  #   kind: anthropic
+  #   base_url: https://api.anthropic.com/v1
+  #   api_key: ${ANTHROPIC_API_KEY}
+  #   models:
+  #     - claude-3-5-haiku-latest
+
 # Incoming model name -> provider that serves it.
-# Models must be unique across routes; providers must be declared above.
+# Models must be unique across routes; providers must be declared above,
+# and each model must appear in that provider's models list.
 routes:
   - model: llama-3.3-70b-versatile
     provider: groq
   - model: llmsim-small
     provider: llmsim
+  # - model: gpt-4o-mini
+  #   provider: openai
+  # - model: llama3.1-8b
+  #   provider: cerebras
+  # - model: mistral-small-latest
+  #   provider: mistral
+  # - model: anthropic/claude-3.5-haiku
+  #   provider: openrouter
 
 telemetry:
   service_name: penstock

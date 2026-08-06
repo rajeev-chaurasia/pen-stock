@@ -10,9 +10,10 @@ import (
 type Builder func(cfg config.ProviderConfig) (Provider, error)
 
 // builders maps a provider kind to its adapter constructor. Adapter
-// packages register themselves at init time (openaiwire registers both
-// groq and openai_compat); the indirection exists because this package
-// cannot import its own adapters without an import cycle.
+// packages register themselves at init time, so a binary must blank
+// import every adapter it intends to serve. The indirection exists
+// because this package cannot import its own adapters without an import
+// cycle.
 var builders = map[config.ProviderKind]Builder{}
 
 // RegisterKind wires a provider kind to its adapter constructor.
