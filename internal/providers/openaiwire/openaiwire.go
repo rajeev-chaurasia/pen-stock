@@ -155,7 +155,7 @@ func (p *provider) statusError(resp *http.Response) *providers.ProviderError {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	return &providers.ProviderError{
 		Provider:   p.name,
-		Class:      providers.ClassFromStatus(resp.StatusCode),
+		Class:      providers.ClassFromStatusAndBody(resp.StatusCode, body),
 		StatusCode: resp.StatusCode,
 		Message:    upstreamErrorMessage(body, resp.StatusCode),
 	}

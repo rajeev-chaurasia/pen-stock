@@ -42,8 +42,27 @@ type streamReader struct {
 	closed    atomic.Bool
 	closeErr  error
 
-	// done is touched only by the Recv caller, marking a terminal state.
-	done bool
+	// These are touched only by the Recv caller. sawDone records whether
+	// the upstream sent its [DONE] sentinel, which is the only evidence
+	// that a completion is whole. termErr is repeated to every Recv
+	// after the first terminal one.
+	done    bool
+	sawDone bool
+	termErr error
+}
+
+// finish latches the terminal error so repeated Recv calls agree on how
+// the stream ended.
+func (r *streamReader) finish(err error) {
+	r.done = true
+	r.termErr = err
+}
+
+// event is one parsed SSE event. A keepalive carries no data and exists
+// only to prove the upstream is still working.
+type event struct {
+	data      string
+	keepalive bool
 }
 
 func newStreamReader(ctx context.Context, provider string, body io.ReadCloser) *streamReader {
@@ -57,27 +76,34 @@ func newStreamReader(ctx context.Context, provider string, body io.ReadCloser) *
 
 func (r *streamReader) Recv() (providers.StreamChunk, error) {
 	if r.done {
-		return providers.StreamChunk{}, io.EOF
+		return providers.StreamChunk{}, r.termErr
 	}
 	if r.closed.Load() {
-		r.done = true
-		return providers.StreamChunk{}, io.EOF
+		// Closed underneath us, so whatever arrived is all there is.
+		r.finish(providers.ErrStreamTruncated)
+		return providers.StreamChunk{}, r.termErr
 	}
 
-	data, err := r.nextEvent()
+	ev, err := r.nextEvent()
 	if err != nil {
-		r.done = true
 		userClosed := r.closed.Load()
 		_ = r.Close()
-		return providers.StreamChunk{}, r.recvError(err, userClosed)
+		r.finish(r.recvError(err, userClosed))
+		return providers.StreamChunk{}, r.termErr
 	}
-	if data == sseDoneSentinel {
-		r.done = true
+	if ev.keepalive {
+		// Report liveness so the caller can hold its idle budget open
+		// during a long time to first token.
+		return providers.StreamChunk{Keepalive: true}, nil
+	}
+	if ev.data == sseDoneSentinel {
+		r.sawDone = true
 		_ = r.Close()
+		r.finish(io.EOF)
 		return providers.StreamChunk{}, io.EOF
 	}
 
-	chunk := providers.StreamChunk{Data: []byte(data)}
+	chunk := providers.StreamChunk{Data: []byte(ev.data)}
 	var envelope struct {
 		Usage *usageJSON `json:"usage"`
 	}
@@ -99,10 +125,12 @@ func (r *streamReader) Close() error {
 }
 
 // nextEvent reads one SSE event and returns its joined data payload.
-// Comment lines and non-data fields are skipped; CRLF endings and data
-// split across multiple lines are handled per the SSE spec. An event
-// larger than maxEventBytes aborts with errEventTooLarge.
-func (r *streamReader) nextEvent() (string, error) {
+// Non-data fields are skipped; CRLF endings and data split across
+// multiple lines are handled per the SSE spec. Comment lines surface as
+// keepalives rather than being swallowed, because some backends send
+// nothing else during a long time to first token. An event larger than
+// maxEventBytes aborts with errEventTooLarge.
+func (r *streamReader) nextEvent() (event, error) {
 	var data []string
 	haveData := false
 	remaining := maxEventBytes
@@ -113,13 +141,15 @@ func (r *streamReader) nextEvent() (string, error) {
 			switch {
 			case trimmed == "":
 				if haveData {
-					return strings.Join(data, "\n"), nil
+					return event{data: strings.Join(data, "\n")}, nil
 				}
 				// blank line outside an event; the next event starts
 				// with a fresh budget
 				remaining = maxEventBytes
 			case trimmed[0] == sseCommentByte:
-				// comment or keep-alive line
+				if !haveData {
+					return event{keepalive: true}, nil
+				}
 			case strings.HasPrefix(trimmed, sseDataPrefix):
 				value := strings.TrimPrefix(trimmed, sseDataPrefix)
 				value = strings.TrimPrefix(value, " ")
@@ -130,11 +160,10 @@ func (r *streamReader) nextEvent() (string, error) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) && haveData {
-				// stream ended mid-event; deliver what arrived
-				return strings.Join(data, "\n"), nil
-			}
-			return "", err
+			// Pending event data at EOF is discarded, per the SSE spec.
+			// Delivering a half-arrived event would hand the caller torn
+			// JSON that looks like a complete chunk.
+			return event{}, err
 		}
 	}
 }
@@ -162,8 +191,13 @@ func (r *streamReader) readLine(remaining *int) (string, error) {
 func (r *streamReader) recvError(err error, userClosed bool) error {
 	switch {
 	case errors.Is(err, io.EOF):
-		// upstream ended without [DONE]; treat as a normal end of stream
-		return io.EOF
+		if r.sawDone {
+			return io.EOF
+		}
+		// The body ended without [DONE], which on the OpenAI wire is the
+		// only completeness signal. Reporting io.EOF here would let the
+		// caller present a partial answer as a finished one.
+		return providers.ErrStreamTruncated
 	case errors.Is(err, errEventTooLarge):
 		return &providers.ProviderError{
 			Provider: r.provider,
@@ -187,7 +221,7 @@ func (r *streamReader) recvError(err error, userClosed bool) error {
 		}
 	case userClosed:
 		// the read failed because Close tore down the body on purpose
-		return io.EOF
+		return providers.ErrStreamTruncated
 	default:
 		return &providers.ProviderError{
 			Provider: r.provider,

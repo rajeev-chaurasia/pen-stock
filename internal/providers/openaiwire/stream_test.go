@@ -69,18 +69,24 @@ func sseUpstream(t *testing.T, payload string, fragment int) *httptest.Server {
 	return ts
 }
 
-func collectChunks(t *testing.T, r providers.StreamReader) []providers.StreamChunk {
+// collectChunks drains a stream, separating data chunks from keepalives.
+// Keepalives are reported rather than swallowed so a caller can hold its
+// idle budget open during a long time to first token.
+func collectChunks(t *testing.T, r providers.StreamReader) (data []providers.StreamChunk, keepalives int) {
 	t.Helper()
-	var chunks []providers.StreamChunk
 	for {
 		c, err := r.Recv()
 		if errors.Is(err, io.EOF) {
-			return chunks
+			return data, keepalives
 		}
 		if err != nil {
 			t.Fatalf("Recv: %v", err)
 		}
-		chunks = append(chunks, c)
+		if c.Keepalive {
+			keepalives++
+			continue
+		}
+		data = append(data, c)
 	}
 }
 
@@ -114,7 +120,11 @@ func TestChatStreamParsesGroqStyleSSE(t *testing.T) {
 	}
 	defer reader.Close()
 
-	assertGroqChunks(t, collectChunks(t, reader))
+	chunks, keepalives := collectChunks(t, reader)
+	assertGroqChunks(t, chunks)
+	if keepalives != 1 {
+		t.Errorf("keepalives = %d, want the fixture's leading comment surfaced once", keepalives)
+	}
 
 	// EOF must be sticky after [DONE].
 	if _, err := reader.Recv(); !errors.Is(err, io.EOF) {
@@ -134,7 +144,8 @@ func TestChatStreamSplitReads(t *testing.T) {
 			}
 			defer reader.Close()
 
-			assertGroqChunks(t, collectChunks(t, reader))
+			chunks, _ := collectChunks(t, reader)
+			assertGroqChunks(t, chunks)
 		})
 	}
 }
@@ -230,9 +241,10 @@ func TestChatStreamOversizedEventRejected(t *testing.T) {
 		t.Fatal("Recv did not return; unbounded event read")
 	}
 
-	// A failed Recv tears down the body, so EOF must be sticky after it.
-	if _, err := reader.Recv(); !errors.Is(err, io.EOF) {
-		t.Fatalf("Recv after oversized event = %v, want io.EOF", err)
+	// The terminal error repeats rather than decaying to io.EOF: a
+	// caller polling again must not read a failed stream as a clean end.
+	if _, err := reader.Recv(); !errors.Is(err, providers.ErrStreamTruncated) {
+		assertClass(t, err, providers.ErrClassUpstream)
 	}
 	awaitFloodStopped(t, written, done, capBytes+writeSlack)
 }
@@ -275,10 +287,61 @@ func TestStreamReaderCloseSemantics(t *testing.T) {
 	}()
 	select {
 	case err := <-recvErr:
-		if !errors.Is(err, io.EOF) {
-			t.Fatalf("Recv after Close = %v, want io.EOF", err)
+		// Closing mid-stream means the completion never finished, so the
+		// reader must say truncated rather than report a clean end.
+		if !errors.Is(err, providers.ErrStreamTruncated) {
+			t.Fatalf("Recv after Close = %v, want ErrStreamTruncated", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Recv after Close blocked")
+	}
+}
+
+func TestStreamWithoutDoneReportsTruncation(t *testing.T) {
+	// The upstream ends its body cleanly but never sends [DONE], which
+	// is what a crashed backend behind a proxy looks like. Reporting
+	// io.EOF here would present a partial answer as a whole one.
+	truncated := "data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n"
+	upstream := sseUpstream(t, truncated, 0)
+	p := openaiwire.New("groq", upstream.URL, "k", nil)
+
+	reader, err := p.ChatStream(context.Background(), chatReq())
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	defer reader.Close()
+
+	if _, err := reader.Recv(); err != nil {
+		t.Fatalf("first Recv: %v", err)
+	}
+	if _, err := reader.Recv(); !errors.Is(err, providers.ErrStreamTruncated) {
+		t.Fatalf("Recv at truncated end = %v, want ErrStreamTruncated", err)
+	}
+}
+
+func TestTornEventAtEOFIsDiscarded(t *testing.T) {
+	// A half-arrived event is not a chunk. Delivering it would hand the
+	// caller invalid JSON that looks like a complete one.
+	torn := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"trunca"
+	upstream := sseUpstream(t, torn, 0)
+	p := openaiwire.New("groq", upstream.URL, "k", nil)
+
+	reader, err := p.ChatStream(context.Background(), chatReq())
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	defer reader.Close()
+
+	first, err := reader.Recv()
+	if err != nil {
+		t.Fatalf("first Recv: %v", err)
+	}
+	if !strings.Contains(string(first.Data), `"ok"`) {
+		t.Fatalf("first chunk = %q, want the complete event", first.Data)
+	}
+	_, err = reader.Recv()
+	if !errors.Is(err, providers.ErrStreamTruncated) {
+		t.Fatalf("Recv after torn event = %v, want ErrStreamTruncated", err)
 	}
 }
