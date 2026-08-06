@@ -85,7 +85,7 @@ func (p *provider) Chat(ctx context.Context, req *providers.ChatRequest) (*provi
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !is2xx(resp.StatusCode) {
 		return nil, p.statusError(resp)
@@ -125,7 +125,7 @@ func (p *provider) ChatStream(ctx context.Context, req *providers.ChatRequest) (
 		return nil, err
 	}
 	if !is2xx(resp.StatusCode) {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return nil, p.statusError(resp)
 	}
 	return newStreamReader(ctx, p.name, resp.Body), nil

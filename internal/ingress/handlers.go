@@ -154,7 +154,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		s.writeUpstreamError(w, err)
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	h := w.Header()
 	h.Set("Content-Type", contentTypeSSE)

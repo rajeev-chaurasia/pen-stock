@@ -15,9 +15,13 @@ linters:
           disabled: true
   exclusions:
     rules:
+      # Test bodies fail loudly through t.Fatal, so an unchecked Close in
+      # teardown carries no risk worth the noise. Production code stays
+      # strict.
       - path: _test\.go
         linters:
           - gosec
+          - errcheck
 
 formatters:
   enable:

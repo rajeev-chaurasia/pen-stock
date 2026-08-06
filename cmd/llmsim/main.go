@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -27,6 +28,15 @@ const (
 )
 
 func main() {
+	// Every exit path funnels through run so deferred cleanup always
+	// gets to happen before the process leaves.
+	if err := run(); err != nil {
+		log.Printf("llmsim: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	listen := flag.String("listen", ":8089", "address to listen on")
 	seed := flag.Int64("seed", 1, "determinism seed")
 	profilePath := flag.String("profile", "", "path to a profile JSON file; built-in default when empty")
@@ -40,7 +50,7 @@ func main() {
 	if *profilePath != "" {
 		p, err := llmsim.LoadProfile(*profilePath)
 		if err != nil {
-			log.Fatalf("llmsim: %v", err)
+			return err
 		}
 		profile = p
 	}
@@ -73,13 +83,14 @@ func main() {
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("llmsim: serve: %v", err)
+			return fmt.Errorf("serve: %w", err)
 		}
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("llmsim: shutdown: %v", err)
+			return fmt.Errorf("shutdown: %w", err)
 		}
 	}
+	return nil
 }

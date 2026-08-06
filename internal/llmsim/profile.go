@@ -65,6 +65,9 @@ func (d Dist) sample(rng *rand.Rand) float64 {
 
 // LoadProfile reads and validates a Profile from a JSON file.
 func LoadProfile(path string) (Profile, error) {
+	// The path comes from the operator's own command line, so there is
+	// no untrusted input to traverse with.
+	// #nosec G304
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Profile{}, fmt.Errorf("llmsim: read profile: %w", err)

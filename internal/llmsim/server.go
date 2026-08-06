@@ -117,7 +117,12 @@ type plan struct {
 // newPlan seeds the request RNG with Seed XOR n and draws the failure mode,
 // token count, latencies and words in a fixed order.
 func (s *Server) newPlan(n int64) plan {
+	// The conversion wraps by design: any bit pattern is a valid seed.
+	// #nosec G115 -- seed derivation, not arithmetic on a size or index.
 	seed := uint64(s.opts.Seed ^ n)
+	// A deterministic generator is the whole point of llmsim: the same
+	// seed must replay the same latencies and text on every run.
+	// #nosec G404 -- simulation fixture, never used for anything secret.
 	rng := rand.New(rand.NewPCG(seed, seed))
 
 	p := plan{n: n, fail: failNone}

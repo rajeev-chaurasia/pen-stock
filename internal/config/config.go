@@ -68,11 +68,14 @@ var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // api_key fields, fills in defaults, and validates the result. Unknown YAML
 // fields are rejected.
 func Load(path string) (*Config, error) {
+	// The path comes from the operator's own command line, so there is
+	// no untrusted input to traverse with.
+	// #nosec G304
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var cfg Config
 	dec := yaml.NewDecoder(f)
