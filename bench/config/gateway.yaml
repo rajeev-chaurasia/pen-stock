@@ -1,0 +1,68 @@
+# Gateway configuration for the benchmark harness. Used by every
+# scenario except cache_hit, which needs gateway-cache.yaml.
+#
+# This file is deliberately close to config.example.yaml. A benchmark
+# config tuned to make the gateway look fast measures a deployment
+# nobody runs, so every setting below is either the shipped default or
+# is called out in bench/README.md as a difference.
+#
+# What is OFF here, and therefore not in the overhead figure:
+#   - the cache (that is what gateway-cache.yaml exists for)
+#   - per tenant budgets and rate limits, because no tenants are defined
+#   - the accounting ledger, because ledger_path is empty
+#   - OTLP trace export, because otlp_endpoint is empty
+# All four are the shipped defaults, and all four cost something when
+# switched on. bench/README.md lists them under what would make these
+# numbers misleading.
+
+server:
+  listen: "127.0.0.1:8080"
+  admin_listen: "127.0.0.1:9090"
+  # The shipped default, left alone on purpose. If a run sheds requests
+  # with 503 it has saturated this ceiling, which is a real gateway
+  # behavior worth seeing rather than a number to tune away. The
+  # scenarios count 503s and say so in their summary.
+  max_inflight: 256
+  read_timeout_ms: 30000
+  upstream_timeout_ms: 120000
+  stream_idle_timeout_ms: 60000
+
+auth:
+  # A fixed constant, not a secret. The gateway only ever binds loopback
+  # during a benchmark, and a literal keeps this file loading in a bare
+  # shell the way bin/smoke.yaml does. Authentication is left ON because
+  # comparing an unauthenticated gateway against a direct upstream would
+  # quietly omit a bearer token comparison the real one performs.
+  client_keys:
+    - "penstock-bench-key-0123456789abcdef"
+
+accounting:
+  ledger_path: ""
+
+cache:
+  # Off, so gateway_overhead measures the gateway forwarding a request
+  # rather than the gateway answering it from memory. A cached answer is
+  # roughly free, and letting even a few hits into that scenario would
+  # drag the reported overhead below zero.
+  enabled: false
+
+providers:
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+    models:
+      - llmsim-small
+
+routes:
+  - model: llmsim-small
+    provider: llmsim
+
+telemetry:
+  service_name: penstock-bench
+  otlp_endpoint: ""
+  # info is the shipped default and it writes one structured line per
+  # request. That cost belongs in the overhead figure, so it stays.
+  # Note that where those lines go changes the number: bench/run.sh
+  # redirects them to a file, and a terminal would be slower.
+  log_level: info

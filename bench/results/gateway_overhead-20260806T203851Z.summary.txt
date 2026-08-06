@@ -1,0 +1,44 @@
+
+------------------------------------------------------------------------
+Penstock gateway overhead
+------------------------------------------------------------------------
+gateway      : http://127.0.0.1:8080
+direct       : http://127.0.0.1:8090
+model        : llmsim-small
+duration/arm : 2m
+arrival rate : 40 req/s per arm
+drift check  : on
+
+Hardware and OS are recorded by bench/run.sh in the .meta.json
+beside this run. A latency figure without that stanza is unusable.
+
+
+quantile        direct       gateway         delta
+------------------------------------------------------------------------
+p50           15.65 ms      16.22 ms       0.57 ms
+p95           43.55 ms      44.26 ms       0.71 ms
+p99           67.16 ms      67.48 ms       0.33 ms
+mean          19.09 ms      19.70 ms       0.62 ms
+------------------------------------------------------------------------
+samples           4801          4800
+
+How to read the delta column
+------------------------------------------------------------------------
+mean : the mean delta IS the mean per request overhead. Means
+       subtract exactly, so E[gateway] - E[direct] = E[overhead]
+       even though no request was measured both ways.
+
+p50/p95/p99 : these are DIFFERENCES OF QUANTILES, not quantiles
+       of the per request overhead. Quantiles do not subtract. The
+       p95 row says how far the gateway moved the 95th percentile
+       of end to end latency, which is a fair statement about the
+       tail of the system. It does NOT say that 95% of requests
+       paid less than that in gateway cost. Nothing in this harness
+       can say that, because measuring one request both ways at
+       once is not possible.
+
+Drift check
+------------------------------------------------------------------------
+direct p50 before gateway arm : 15.65 ms
+direct p50 after  gateway arm : 15.70 ms
+drift                         : 0.3%

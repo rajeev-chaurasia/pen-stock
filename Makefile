@@ -35,3 +35,32 @@ run:
 
 tidy:
 	$(GO) mod tidy
+
+.PHONY: bench bench-all bench-clean
+
+# Benchmarks. bench/run.sh builds the binaries, starts two llmsim
+# instances and the gateway on loopback, waits for all three, runs the
+# scenario, and writes raw k6 JSON plus a hardware stanza into
+# bench/results. Nothing has to be started by hand.
+#
+# Read bench/README.md before quoting any number these produce. What is
+# being measured, and what is deliberately not, is the point.
+BENCH_SCENARIO ?= gateway_overhead
+
+bench:
+	bash bench/run.sh $(BENCH_SCENARIO)
+
+# Includes the soak, so this takes SOAK_DURATION (30m by default) on top
+# of the rest. Shorten it with: SOAK_DURATION=5m make bench-all
+bench-all:
+	bash bench/run.sh gateway_overhead
+	bash bench/run.sh streaming_ttft
+	bash bench/run.sh cache_hit
+	bash bench/run.sh soak
+
+# Clears results but keeps the directory and its note. Committed runs
+# are evidence, so this is deliberately a separate target you have to
+# ask for rather than something a build does on its way past.
+bench-clean:
+	@find bench/results -type f ! -name '.gitkeep' -delete
+	@echo "bench/results cleared"

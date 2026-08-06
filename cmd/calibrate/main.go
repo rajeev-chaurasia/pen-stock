@@ -113,7 +113,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("encode profile: %w", err)
 	}
-	if err := os.WriteFile(*out, append(encoded, '\n'), 0o644); err != nil {
+	// A profile carries timing, not secrets, but there is no reason for
+	// it to be group writable either.
+	if err := os.WriteFile(*out, append(encoded, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", *out, err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)

@@ -1,0 +1,33 @@
+This directory holds benchmark output, and it is committed on purpose.
+
+Every run writes four files sharing one run id:
+
+  <run>.raw.json      every metric sample k6 took, one JSON object per
+                      line, exactly as k6 emitted it
+  <run>.summary.txt   the rendered summary, including its caveats
+  <run>.summary.json  the same summary as data
+  <run>.meta.json     the hardware stanza (see below)
+
+Server logs (<run>.gateway.log and the two llmsim logs) land here too
+while a run is being investigated, and are gitignored: they are a
+debugging aid, not evidence.
+
+THE HARDWARE STANZA
+
+No result belongs in this directory without its .meta.json beside it.
+That file records the CPU, logical core count, memory, operating
+system, Go and k6 versions, the llmsim seed and time scale, which
+profile the simulator was replaying and whether that profile was
+calibrated or a built in guess, and every load knob the run used.
+
+A latency number without that stanza is not a measurement anybody can
+check. It is a claim. bench/run.sh writes the stanza before k6 starts,
+so it exists even for runs that failed.
+
+WHY THE RAW SAMPLES ARE COMMITTED AND NOT JUST THE SUMMARY
+
+A summary is a set of choices about which statistics to show. Committing
+the per sample JSON means a reader who distrusts those choices, or who
+wants a percentile nobody printed, can recompute from the same data
+rather than take the summary on faith. Every sample is tagged with its
+run id, its scenario, and which arm of the comparison it came from.

@@ -1,0 +1,57 @@
+# Gateway configuration for bench/scenarios/cache_hit.js. Identical to
+# gateway.yaml except that the exact cache tier is on.
+#
+# The semantic tier stays off. Turning it on would raise the hit rate
+# this scenario prints, and that is exactly why it stays off: the
+# measurements in docs/semantic-caching.md show cosine similarity
+# scoring opposite-meaning questions ABOVE genuine paraphrases, so the
+# extra hits are not all hits on the same question. A benchmark that
+# enables a feature the project ships disabled, in order to print a
+# better number, is advertising rather than measurement.
+
+server:
+  listen: "127.0.0.1:8080"
+  admin_listen: "127.0.0.1:9090"
+  max_inflight: 256
+  read_timeout_ms: 30000
+  upstream_timeout_ms: 120000
+  stream_idle_timeout_ms: 60000
+
+auth:
+  client_keys:
+    - "penstock-bench-key-0123456789abcdef"
+
+accounting:
+  ledger_path: ""
+
+cache:
+  enabled: true
+  # Comfortably above any CACHE_KEYS a run is likely to use, so the
+  # measured hit rate is not quietly capped by eviction. Raise this if
+  # you raise CACHE_KEYS past a few thousand.
+  max_entries: 10000
+  # Long enough that nothing warmed at the start of a run expires before
+  # the measured arm reaches it.
+  ttl_seconds: 3600
+  # Only fully deterministic requests are cacheable. This is the shipped
+  # default and the scenario sends "temperature": 0 to match it.
+  max_temperature: 0
+  semantic:
+    enabled: false
+
+providers:
+  - name: llmsim
+    kind: openai_compat
+    base_url: http://127.0.0.1:8089/v1
+    api_key: sim
+    models:
+      - llmsim-small
+
+routes:
+  - model: llmsim-small
+    provider: llmsim
+
+telemetry:
+  service_name: penstock-bench
+  otlp_endpoint: ""
+  log_level: info

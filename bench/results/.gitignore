@@ -1,0 +1,10 @@
+# Server logs from a run are useful while you are looking at a result
+# and are not part of it. The raw k6 samples, the summary and the
+# hardware stanza are the artifact, and those are committed.
+*.log
+
+# Best effort resident memory samples from a soak. Keep one by force
+# (git add -f) when it is the evidence for a leak; otherwise it is
+# noise, and on platforms where sampling did not work it is a column
+# of "unknown".
+*.rss.csv
