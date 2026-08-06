@@ -26,7 +26,12 @@ import (
 	_ "github.com/rajeev-chaurasia/pen-stock/internal/providers/openaiwire"
 )
 
-const shutdownGrace = 5 * time.Second
+const (
+	shutdownGrace = 5 * time.Second
+	// idleConnTimeout reaps keep-alive connections that never send
+	// another request, which is what a slow loris looks like.
+	idleConnTimeout = 2 * time.Minute
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -75,35 +80,58 @@ func run() error {
 	}
 
 	metrics := obs.NewMetrics()
-	gateway := ingress.NewServer(cfg.Server, routes, log, ingress.WithMetrics(metrics))
+	gateway := ingress.NewServer(cfg.Server, routes, log,
+		ingress.WithMetrics(metrics),
+		ingress.WithClientKeys(cfg.Auth.ClientKeys),
+		ingress.WithInflightLimit(cfg.Server.MaxInflight),
+	)
 
-	mux := http.NewServeMux()
-	mux.Handle("/", withSpan(gateway.Handler()))
-	mux.Handle("GET /metrics", metrics.Handler())
-
+	readTimeout := time.Duration(cfg.Server.ReadTimeoutMS) * time.Millisecond
 	srv := &http.Server{
-		Addr:        cfg.Server.Listen,
-		Handler:     mux,
-		ReadTimeout: time.Duration(cfg.Server.ReadTimeoutMS) * time.Millisecond,
-		// No WriteTimeout: it would sever long-lived SSE streams. Stream
-		// liveness is enforced per chunk via StreamIdleTimeoutMS instead.
+		Addr:              cfg.Server.Listen,
+		Handler:           withSpan(gateway.Handler()),
+		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleConnTimeout,
+		// No WriteTimeout: it would sever long lived SSE streams. Stream
+		// liveness is enforced per write via StreamIdleTimeoutMS instead.
+	}
+
+	// Metrics carry token spend and latency profiles, which is operator
+	// data rather than caller data, so they get their own listener.
+	adminMux := http.NewServeMux()
+	adminMux.Handle("GET /metrics", metrics.Handler())
+	admin := &http.Server{
+		Addr:              cfg.Server.AdminListen,
+		Handler:           adminMux,
+		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleConnTimeout,
 	}
 
 	log.Info("penstock starting",
 		"listen", cfg.Server.Listen,
+		"admin_listen", cfg.Server.AdminListen,
 		"providers", len(provs),
 		"routes", len(routes),
+		"auth_required", gateway.RequiresAuth(),
+		"max_inflight", cfg.Server.MaxInflight,
 		"otlp_endpoint", cfg.Telemetry.OTLPEndpoint,
 	)
+	if !gateway.RequiresAuth() {
+		log.Warn("no client_keys configured, every caller reaching this listener spends the configured provider keys")
+	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- admin.ListenAndServe() }()
 
 	select {
 	case <-ctx.Done():
 		log.Info("penstock draining")
 		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
+		_ = admin.Shutdown(drainCtx)
 		return srv.Shutdown(drainCtx)
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
