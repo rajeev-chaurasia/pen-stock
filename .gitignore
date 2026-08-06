@@ -1,0 +1,22 @@
+# binaries
+/penstock
+/penstock.exe
+/llmsim
+/llmsim.exe
+/bin/
+/dist/
+
+# test and coverage artifacts
+coverage.out
+coverage.html
+*.test
+
+# local environment
+.env
+.env.*
+
+# editor noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
