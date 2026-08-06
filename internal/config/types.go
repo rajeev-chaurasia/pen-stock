@@ -8,7 +8,28 @@ const (
 	KindGroq ProviderKind = "groq"
 	// KindOpenAICompat targets any OpenAI-wire endpoint, including llmsim.
 	KindOpenAICompat ProviderKind = "openai_compat"
+	// KindOpenAI targets the OpenAI API.
+	KindOpenAI ProviderKind = "openai"
+	// KindCerebras targets the Cerebras inference API.
+	KindCerebras ProviderKind = "cerebras"
+	// KindMistral targets Mistral La Plateforme.
+	KindMistral ProviderKind = "mistral"
+	// KindOpenRouter targets the OpenRouter aggregator.
+	KindOpenRouter ProviderKind = "openrouter"
+	// KindGemini targets Google's Gemini API, which does not speak the
+	// OpenAI wire format and is translated by its own adapter.
+	KindGemini ProviderKind = "gemini"
+	// KindAnthropic targets the Anthropic Messages API, likewise
+	// translated by its own adapter.
+	KindAnthropic ProviderKind = "anthropic"
 )
+
+// AllKinds lists every kind the gateway can build. Validation uses it so
+// a new adapter shows up in error messages without extra wiring.
+var AllKinds = []ProviderKind{
+	KindGroq, KindOpenAICompat, KindOpenAI, KindCerebras,
+	KindMistral, KindOpenRouter, KindGemini, KindAnthropic,
+}
 
 type Config struct {
 	Server    ServerConfig     `yaml:"server"`

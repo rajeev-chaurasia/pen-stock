@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -195,10 +196,8 @@ func (c *Config) Validate() error {
 		}
 		providerNames[p.Name] = true
 
-		switch p.Kind {
-		case KindGroq, KindOpenAICompat:
-		default:
-			add("%s: unknown kind %q, must be %q or %q", label, p.Kind, KindGroq, KindOpenAICompat)
+		if !slices.Contains(AllKinds, p.Kind) {
+			add("%s: unknown kind %q, must be one of %v", label, p.Kind, AllKinds)
 		}
 
 		if p.BaseURL == "" {
