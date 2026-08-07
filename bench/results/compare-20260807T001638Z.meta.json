@@ -1,0 +1,59 @@
+{
+  "run_id": "compare-20260807T001638Z",
+  "scenario": "compare_litellm",
+  "started_utc": "2026-08-07T00:17:48Z",
+  "commit": "unknown",
+
+  "hardware": {
+    "cpu": "Intel(R) Core(TM) Ultra 7 265H",
+    "logical_cpus": "16",
+    "memory": "63.5 GiB",
+    "os": "Microsoft Windows 11 Enterprise 10.0.26200",
+    "note": "k6, three llmsim instances, penstock and litellm all ran on this one machine and competed for these cores"
+  },
+
+  "toolchain": {
+    "go": "go version go1.26.5 windows/amd64",
+    "k6": "k6.exe v1.3.0 (commit/5870e99ae8, go1.25.1, windows/amd64)",
+    "python": "CPython 3.12.13"
+  },
+
+  "penstock": {
+    "binary_sha256_prefix": "de9c4198ade12960",
+    "config": "bench/config/gateway.yaml",
+    "listen": "http://127.0.0.1:8080",
+    "note": "unmodified bench/config/gateway.yaml, the same file its own flagship benchmark uses"
+  },
+
+  "litellm": {
+    "version": "1.95.0",
+    "config": "bench/compare/litellm.config.yaml",
+    "launcher": "bench/compare/start-litellm.sh",
+    "listen": "http://127.0.0.1:8081",
+    "num_workers": "1",
+    "deps": "uvicorn==0.52.1, fastapi==0.139.2, httptools==0.8.0, uvloop=absent, orjson==3.11.9, pydantic==2.13.4",
+    "steelman": "LITELLM_MODE=PRODUCTION, LITELLM_LOG=ERROR, telemetry off, local model cost map, json_logs, set_verbose false, no database, no redis, no callbacks",
+    "known_handicaps_on_this_platform": "uvloop unavailable on Windows; gunicorn unavailable on Windows so uvicorn supervises the workers"
+  },
+
+  "upstream": {
+    "simulator": "llmsim",
+    "profile_path": "bench/profiles/groq.json",
+    "profile_status": "calibrated",
+    "profile_recorded_samples": "6",
+    "seed": "1",
+    "time_scale": "0.05",
+    "instances": "three, identically seeded: one for the baseline, one behind penstock, one behind litellm"
+  },
+
+  "load": {
+    "duration_per_arm": "120s",
+    "arms": "direct_a, via_penstock, via_litellm, direct_b",
+    "rate_per_second": "20",
+    "pre_allocated_vus": "50",
+    "max_vus": "200",
+    "arm_gap": "5s",
+    "warmup_requests_per_path": "30",
+    "drift_check": "true"
+  }
+}

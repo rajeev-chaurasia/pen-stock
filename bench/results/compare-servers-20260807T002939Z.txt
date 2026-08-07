@@ -1,0 +1,12 @@
+LiteLLM ASGI server comparison
+started_utc : 2026-08-07T00:29:40Z
+workers     : 1
+load        : 20 req/s for 20s, constant arrival rate
+upstream    : llmsim seed=1 time-scale=0.05
+
+CALIBRATION server=uvicorn p50=29.04 p95=59.46 p99=119.85 mean=32.92 samples=401 dropped=0 failed_rate=0.0000
+CALIBRATION server=granian p50=28.76 p95=58.00 p99=111.49 mean=32.94 samples=401 dropped=0 failed_rate=0.0000
+
+Lowest mean and p50 wins. Whichever that is belongs in
+LITELLM_SERVER in bench/compare/start-litellm.sh, and the result
+belongs in docs/comparison.md whether or not it favours Penstock.

@@ -1,0 +1,17 @@
+LiteLLM --num_workers sweep
+started_utc  : 2026-08-06T23:19:52Z
+logical_cpus : 16
+load         : 20 req/s for 20s, constant arrival rate
+upstream     : llmsim seed=1 time-scale=0.05
+warmup       : 30 requests before each measured sweep point
+
+Everything else on this machine is competing for the same cores,
+so a high worker count can lose here and win on a dedicated box.
+
+CALIBRATION workers=1 p50=42.60 p95=76.39 p99=127.65 mean=47.14 samples=401 dropped=0 failed_rate=0.0000
+CALIBRATION workers=2 p50=40.78 p95=76.35 p99=127.38 mean=46.01 samples=401 dropped=0 failed_rate=0.0000
+CALIBRATION workers=4 p50=40.99 p95=82.81 p99=127.37 mean=45.98 samples=401 dropped=0 failed_rate=0.0000
+CALIBRATION workers=8 p50=40.93 p95=74.64 p99=131.85 mean=45.69 samples=400 dropped=0 failed_rate=0.0000
+
+Lowest p50 and p95 wins. Put that value in LITELLM_NUM_WORKERS in
+bench/compare/start-litellm.sh and note it in docs/comparison.md.

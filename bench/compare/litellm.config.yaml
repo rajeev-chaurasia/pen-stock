@@ -1,0 +1,95 @@
+# LiteLLM proxy configuration for the Penstock comparison benchmark.
+#
+# THIS FILE IS EVIDENCE, NOT DECORATION.
+#
+# A comparison that misconfigures the other side is worthless. So this
+# config is not "whatever made LiteLLM start". Every setting below is
+# either taken from LiteLLM's own production guide at
+# https://docs.litellm.ai/docs/proxy/prod or is a deliberate choice
+# recorded here with its reason. Nothing here is tuned to slow LiteLLM
+# down, and the settings that would have slowed it down if left alone
+# are called out by name.
+#
+# The exact launch command is in bench/compare/start-litellm.sh, which
+# is what the harness actually runs. Read both together.
+#
+# ---------------------------------------------------------------------
+# What is deliberately NOT here, and why
+#
+#   No database. LiteLLM only needs DATABASE_URL for virtual keys, spend
+#   tracking and the admin UI. Requiring one would put a Postgres round
+#   trip in the request path that Penstock has no equivalent of, which
+#   would be exactly the kind of rigged comparison this file exists to
+#   avoid. Master key auth needs no database, so LiteLLM authenticates
+#   from memory, which is what Penstock does too.
+#
+#   No Redis. LiteLLM's production guide asks for Redis "as soon as you
+#   run more than one proxy instance". One instance runs here, so Redis
+#   would be pure added latency for a feature not under test.
+#
+#   No callbacks, no guardrails, no cache. Penstock's bench config
+#   disables its cache for the overhead scenario for the same reason.
+#   Both gateways are measured forwarding a request, not answering one.
+#
+#   No alerting. Slack alerting is in the production guide, and it is a
+#   background feature with no place in a latency measurement.
+# ---------------------------------------------------------------------
+
+model_list:
+  # One model, pointing at a dedicated llmsim instance. Penstock's arm
+  # gets its own identically seeded llmsim on a different port, and the
+  # direct baseline gets a third. See bench/compare/run.sh for why there
+  # are three simulators rather than one.
+  - model_name: llmsim-small
+    litellm_params:
+      # openai/ prefix selects LiteLLM's OpenAI-compatible transport,
+      # which is the same wire protocol Penstock's openai_compat
+      # provider speaks. Neither gateway is doing a translation the
+      # other is not.
+      model: openai/llmsim-small
+      api_base: http://127.0.0.1:8091/v1
+      api_key: sim
+
+litellm_settings:
+  # Production guide, "Logging Configuration". set_verbose is the
+  # deprecated switch and json_logs is the current one; both are set
+  # because leaving verbose logging on is the single easiest way to
+  # accidentally publish a bad LiteLLM number.
+  set_verbose: false
+  json_logs: true
+
+  # Production guide, "Request Timeouts". Generous on purpose: a
+  # timeout that fires would turn a slow request into a fast error and
+  # flatter LiteLLM's tail.
+  request_timeout: 600
+
+  # LiteLLM phones home on startup and periodically unless this is off.
+  # litellm/__init__.py in 1.95.0 has `telemetry = True` as the default.
+  # Turned off because a background HTTP call to a third party has
+  # nothing to do with proxying and could only add noise.
+  telemetry: false
+
+general_settings:
+  # Both gateways check a bearer token against an in-memory constant.
+  # Penstock's bench config keeps auth ON deliberately, on the grounds
+  # that comparing an unauthenticated gateway against a direct upstream
+  # would quietly omit work the real one performs. The same reasoning
+  # applies here, so LiteLLM authenticates too.
+  #
+  # This is a fixed loopback benchmark constant, not a secret. It is the
+  # same string Penstock's bench config uses so both arms put identical
+  # bytes on the wire.
+  master_key: penstock-bench-key-0123456789abcdef
+
+  # Production guide, "Error Logging" and "Spend Writes". Both are
+  # database writes. With no DATABASE_URL configured they cannot fire
+  # anyway, so these are belt and braces: they guarantee that no code
+  # path tries a spend or error write mid-request even if a future
+  # version changes the default.
+  disable_spend_logs: true
+  disable_error_logs: true
+
+  # LiteLLM re-reads its config from the database on an interval when
+  # store_model_in_db is on. There is no database, so this is off, and
+  # no background reload competes with the measured requests.
+  store_model_in_db: false

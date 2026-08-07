@@ -15,10 +15,11 @@ including why gateway cost is only ever reported as a difference and
 why a latency number quoted without its machine is not a result.
 
 **The short version.** On the one workload where the two gateways are
-doing comparable work, Penstock added about 1.5 ms of mean latency per
-request and LiteLLM added about 24.6 ms. That difference is large and
-it is real. Almost everything else on this page is about the ways that
-sentence could still mislead you.
+doing comparable work, Penstock added about 0.8 ms of mean latency per
+request and LiteLLM added about 13.6 ms. The difference is real and it
+reproduces. Almost everything else on this page is about the ways that
+sentence could still mislead you, including the one that nearly made
+this page overstate LiteLLM's overhead by a factor of two.
 
 ## The measurement
 
@@ -44,24 +45,35 @@ than in a two arm run: see "The null comparison" below.
 
 ### Results
 
-Run `compare-20260806T232554Z`. 2400 samples per arm, 0 dropped
-iterations, 0 failed requests, 19206 of 19206 checks passed.
+Run `compare-20260807T001638Z`. 2400 samples per arm, 0 dropped
+iterations, 0 failed requests, all checks passed, drift 4.1%.
 
 | | direct | penstock | penstock delta | litellm | litellm delta |
 |---|---|---|---|---|---|
-| p50  | 16.10 ms | 17.51 ms | **+1.40 ms** | 40.91 ms | **+24.81 ms** |
-| p95  | 43.26 ms | 46.14 ms | **+2.89 ms** | 68.41 ms | **+25.16 ms** |
-| p99  | 68.78 ms | 68.34 ms | **-0.43 ms** | 91.33 ms | **+22.55 ms** |
-| mean | 19.67 ms | 21.13 ms | **+1.46 ms** | 44.26 ms | **+24.60 ms** |
+| p50  | 15.48 ms | 16.28 ms | **+0.79 ms** | 29.33 ms | **+13.85 ms** |
+| p95  | 43.22 ms | 43.27 ms | **+0.04 ms** | 59.97 ms | **+16.74 ms** |
+| p99  | 67.01 ms | 67.12 ms | **+0.12 ms** | 85.37 ms | **+18.37 ms** |
+| mean | 19.12 ms | 19.93 ms | **+0.81 ms** | 32.74 ms | **+13.62 ms** |
 
-Drift check: the direct p50 moved from 16.10 ms to 16.57 ms across the
-run, a drift of 2.9%, comfortably inside the harness's 10% threshold.
+The **minimum** observed latency was 2.05 ms direct, 3.13 ms through
+Penstock, and 11.85 ms through LiteLLM. LiteLLM's fastest request of
+2400 was slower than the baseline's 25th percentile. That is the
+signature of a fixed per request cost rather than a tail problem.
 
-One more number worth having: the **minimum** observed latency was
-2.15 ms direct, 3.99 ms through Penstock, and 22.12 ms through LiteLLM.
-LiteLLM's fastest request of 2401 was slower than the baseline's
-median. That is the signature of a fixed per request cost rather than
-a tail problem.
+### It reproduces
+
+An independent repeat, `compare-20260807T000605Z`, same settings, also
+clean (0 dropped, 0 failed, drift 4.3%):
+
+| delta | published run | repeat run |
+|---|---|---|
+| penstock mean | +0.81 ms | +0.86 ms |
+| penstock p50  | +0.79 ms | +0.92 ms |
+| litellm mean  | +13.62 ms | +12.59 ms |
+| litellm p50   | +13.85 ms | +12.63 ms |
+
+Two other runs were made and are discussed under "Runs that were
+thrown away", because discarding runs silently is how benchmarks lie.
 
 ### How to read the delta columns
 
@@ -79,11 +91,6 @@ without a gateway at the same instant is not possible.
 
 ## The null comparison, and what this harness cannot resolve
 
-Penstock's p99 delta is **negative**. A gateway cannot make a request
-faster than not having the gateway there. That number is noise, and
-rather than quietly dropping it, here is what the noise floor actually
-is.
-
 Arms 1 and 4 measure the identical thing: the baseline, twice, with the
 gateway arms in between. Any difference between them is pure
 measurement noise. That is the floor below which nothing on this page
@@ -91,41 +98,129 @@ means anything:
 
 | | arm 1 direct | arm 4 direct | null delta |
 |---|---|---|---|
-| p50  | 16.10 ms | 16.57 ms | 0.47 ms |
-| p95  | 43.26 ms | 45.11 ms | 1.85 ms |
-| p99  | 68.78 ms | 67.42 ms | 1.36 ms |
-| mean | 19.67 ms | 19.92 ms | 0.25 ms |
+| p50  | 15.48 ms | 16.12 ms | 0.64 ms |
+| p95  | 43.22 ms | 44.19 ms | 0.96 ms |
+| p99  | 67.01 ms | 67.98 ms | 0.97 ms |
+| mean | 19.12 ms | 19.42 ms | 0.30 ms |
 
 Put the measured deltas against that floor:
 
 | statistic | noise floor | penstock delta | vs floor | litellm delta | vs floor |
 |---|---|---|---|---|---|
-| mean | 0.25 ms | 1.46 ms | 5.8x | 24.60 ms | 98x |
-| p50  | 0.47 ms | 1.40 ms | 3.0x | 24.81 ms | 53x |
-| p95  | 1.85 ms | 2.89 ms | 1.6x | 25.16 ms | 14x |
-| p99  | 1.36 ms | -0.43 ms | below floor | 22.55 ms | 17x |
+| mean | 0.30 ms | +0.81 ms | 2.7x | +13.62 ms | 45x |
+| p50  | 0.64 ms | +0.79 ms | 1.2x | +13.85 ms | 22x |
+| p95  | 0.96 ms | +0.04 ms | **below floor** | +16.74 ms | 17x |
+| p99  | 0.97 ms | +0.12 ms | **below floor** | +18.37 ms | 19x |
 
-The honest conclusions from that table:
+The honest conclusions:
 
-- **LiteLLM's overhead is unambiguous.** Every statistic is between 14x
-  and 98x the noise floor. No plausible amount of measurement error
+- **LiteLLM's overhead is unambiguous.** Every statistic is between 17x
+  and 45x the noise floor. No plausible amount of measurement error
   accounts for it.
-- **Penstock's mean overhead is well resolved**, at about 6x the floor.
-  Quote the 1.46 ms mean.
-- **Penstock's tail deltas are not well resolved.** The p95 delta is
-  only 1.6x the floor and the p99 delta is below it entirely. Do not
-  quote "Penstock adds 2.89 ms at p95" as though it were a measurement.
-  The correct statement is that Penstock's tail cost is at or under the
-  resolution of this harness.
-- **The ratio between the two gateways is less certain than the
-  difference.** The difference in mean overhead, about 23 ms, is solid.
-  The ratio, about 17x, has a small and noisy denominator, so it should
-  be treated as "more than an order of magnitude" rather than as 17.
+- **Penstock's overhead is barely measurable by this harness at all.**
+  Its mean delta is 2.7x the floor, which is real but not comfortable.
+  Its p50 delta is 1.2x the floor. **Its p95 and p99 deltas are below
+  the floor entirely**, and in the repeat run its p95 delta was
+  +0.70 ms against a 1.20 ms floor, also below.
+- Therefore: **quote Penstock's mean overhead of about 0.8 ms and
+  nothing else.** Do not quote a Penstock tail figure from this page.
+  The correct statement about Penstock's tail is that it is smaller
+  than this harness can resolve, which is a weaker claim than a number
+  and is the only one the data supports.
+- **The difference between the two gateways is solid; the ratio is
+  not.** The difference in mean overhead, about 12.8 ms, is measured
+  many times over the noise floor. The ratio, about 17x, has a small
+  and noisy denominator. Say "more than an order of magnitude", not
+  "17x".
+
+## The mistake this page nearly published
+
+This is the most important section for anyone judging whether to trust
+the table above.
+
+LiteLLM's production guide says, for a single VM, to set the worker
+count to the vCPU count. That would be 16 here, which would obviously
+oversubscribe a machine that is also running k6, three simulators and
+Penstock. So the worker count was swept with
+`bench/compare/calibrate-litellm.sh`, which starts LiteLLM and one
+simulator and measures each setting:
+
+| workers | p50 | p95 | mean |
+|---|---|---|---|
+| 1 | 42.60 ms | 76.39 ms | 47.14 ms |
+| 2 | 40.78 ms | 76.35 ms | 46.01 ms |
+| 4 | 40.99 ms | 82.81 ms | 45.98 ms |
+| 8 | 40.93 ms | 74.64 ms | 45.69 ms |
+
+That sweep says worker count does not matter: 1.5 ms of spread across
+an eightfold change, inside the noise. On that basis 8 was chosen,
+because it won the mean and the p95.
+
+**The sweep was wrong, and it was wrong in the direction that flattered
+Penstock.** The sweep runs LiteLLM alone. The real comparison runs it
+alongside three simulators, Penstock and k6 on the same 16 cores.
+Measured there, in the full four arm run:
+
+| LiteLLM workers | litellm mean overhead |
+|---|---|
+| 8 | **+24.60 ms** (`compare-20260806T232554Z`) |
+| 1 | **+13.62 ms** (`compare-20260807T001638Z`) |
+
+LiteLLM is roughly **twice as fast with one worker as with eight**, the
+opposite of what the isolated sweep implied. Eight workers also
+produced seven requests that hung to the client's 60 second timeout in
+`compare-20260806T235233Z`, in a run where the direct and Penstock arms
+had a maximum of 160 ms and not one request over 500 ms. One worker
+produced no hangs and no failures in any run.
+
+Had the first sweep been trusted, this page would have reported
+LiteLLM's overhead as 24.6 ms instead of 13.6 ms: **an overstatement of
+about 2x, entirely in Penstock's favour, produced by a calibration step
+that was itself an attempt to be fair.**
+
+Two things follow, and both are worth more than the headline number:
+
+1. **Calibrate a competitor's settings in the environment the
+   comparison actually runs in**, not in a clean room. A sweep that
+   isolates the thing being tuned can invert the answer.
+2. The 8 worker figure is still in the committed results. It was not
+   deleted, because the record of having got this wrong is part of the
+   evidence that the current number is not similarly wrong.
+
+Whether one worker is optimal on Linux, or on a machine not shared with
+five other processes, was not tested and should not be assumed.
+
+## Runs that were thrown away, and why
+
+Four full runs were made. Two are published above. The other two were
+discarded, and here is exactly why, so that "we ran it until it looked
+good" can be ruled out by inspection rather than by trust.
+
+**`compare-20260806T233800Z`: void, machine contention.** Exit code 99.
+The harness's own guards failed it: 2 dropped iterations and 13.1%
+drift, over the 10% threshold. Every arm degraded, not just LiteLLM
+(direct mean rose from 19.7 ms to 24.5 ms, Penstock's from 21.1 ms to
+45.9 ms, and one LiteLLM request took 20 seconds). The cause was
+self inflicted: files were being written and scripts syntax checked on
+the same machine while it ran. **A benchmark run concurrently with any
+other work is not a benchmark**, and the guards caught it rather than
+quietly folding it into an average.
+
+**`compare-20260806T235233Z`: void, failed requests.** Exit code 99 on
+the error rate threshold. 7 of 2400 LiteLLM requests hung to k6's 60
+second timeout, dragging LiteLLM's mean to 223 ms while its p50 stayed
+at a normal 40 ms. The direct and Penstock arms of the same run were
+pristine. This run used 8 workers and is the evidence, described above,
+that 8 workers were unstable on this platform.
+
+Both discarded runs used the rejected 8 worker configuration. Neither
+discarded run was replaced by a run that "looked better" under the same
+settings: the settings were changed, for a stated reason, and both runs
+under the new settings are reported.
 
 ## Versions
 
-Everything below is read back from
-`bench/results/compare-20260806T232554Z.meta.json`.
+Read back from `bench/results/compare-20260807T001638Z.meta.json`.
 
 ### Hardware
 
@@ -143,7 +238,7 @@ machine and competed for these cores.
 
 | | |
 |---|---|
-| Binary SHA256 prefix | `2e724d8906563655` |
+| Binary SHA256 prefix | `de9c4198ade12960` |
 | Config | `bench/config/gateway.yaml`, unmodified |
 | Go | go1.26.5 windows/amd64 |
 
@@ -163,7 +258,7 @@ no comparison-only Penstock config.
 | uvloop | absent, unavailable on Windows |
 | orjson | 3.11.9 |
 | pydantic | 2.13.4 |
-| Workers | 8 |
+| Workers | 1 (measured choice, see above) |
 
 ### Load generator
 
@@ -173,27 +268,23 @@ k6 v1.3.0. Upstream `llmsim` at `--seed 1 --time-scale 0.05` replaying
 ## How LiteLLM was configured, and why that is the point
 
 A comparison that misconfigures the other side is worth less than no
-comparison. The exact config is
-`bench/compare/litellm.config.yaml`, the exact launch command is
-`bench/compare/start-litellm.sh`, and the install transcript is
-`bench/compare/INSTALL.md`. All three are committed so this section can
-be checked rather than believed.
+comparison. The exact config is `bench/compare/litellm.config.yaml`,
+the exact launch command is `bench/compare/start-litellm.sh`, and the
+install transcript is `bench/compare/INSTALL.md`. All three are
+committed so this section can be checked rather than believed.
 
 Settings applied from LiteLLM's own production guide:
 
-- **`LITELLM_LOG=ERROR`.** This is the most important one. LiteLLM
-  1.95.0's `_logging.py` reads `os.getenv("LITELLM_LOG", "DEBUG")`, so
-  the **default log level of this version is DEBUG**. Benchmarking
-  LiteLLM without setting this would have measured it writing debug
-  logs for every request, and would have been straightforwardly
-  dishonest.
+- **`LITELLM_LOG=ERROR`.** The most important one. LiteLLM 1.95.0's
+  `_logging.py` reads `os.getenv("LITELLM_LOG", "DEBUG")`, so the
+  **default log level of this version is DEBUG**. Benchmarking LiteLLM
+  without setting this would have measured it writing debug logs for
+  every request and would have been straightforwardly dishonest.
 - **`LITELLM_MODE=PRODUCTION`**, which disables `load_dotenv`.
 - **`set_verbose: false`** and **`json_logs: true`**.
 - **`disable_spend_logs: true`**, **`disable_error_logs: true`**.
-- **`request_timeout: 600`**, generous on purpose so that no timeout
-  fires and converts a slow request into a fast error.
-- **`--num_workers 8`**, chosen by measurement rather than by guess.
-  See below.
+- **`request_timeout: 600`**, generous on purpose so no timeout fires
+  and converts a slow request into a fast error.
 - **Telemetry off** and **`LITELLM_LOCAL_MODEL_COST_MAP=True`**, which
   stops LiteLLM fetching its pricing table from GitHub at import.
 
@@ -211,52 +302,64 @@ Things deliberately given to LiteLLM that make it faster:
 - **No `--max_requests_before_restart`.** The production guide suggests
   10000 for memory recycling; omitting it removes any chance of a
   worker restart landing inside the measured window.
+- **A settle window after health.** `/health/liveliness` is answered by
+  the first worker while others are still importing. The harness now
+  waits past that, because measuring LiteLLM while it is still booting
+  would be a rigged result.
+- **30 warmup requests through every path** before k6 starts, so no arm
+  enters the measurement colder than another.
 
 Both gateways authenticate a bearer token against an in memory
 constant, and both are sent identical request bytes. Penstock's bench
 config keeps auth on deliberately, and LiteLLM is held to the same
 standard rather than being run open.
 
-### The worker count was swept, not guessed
+### Granian was offered to LiteLLM too, and measured
 
-"You gave LiteLLM the wrong worker count" is the best objection to a
-comparison like this, and it cannot be answered by assertion.
-`bench/compare/calibrate-litellm.sh` sweeps it under the benchmark's
-own load. The committed sweep
-(`bench/results/compare-calibration-20260806T231950Z.txt`):
+LiteLLM's CLI exposes `--run_granian`, a Rust ASGI server its
+production guide does not mention. "You never tried their fast server"
+deserves a number rather than an excuse, so
+`bench/compare/compare-servers.sh` measured it
+(`compare-servers-20260807T002939Z.txt`, 1 worker, 20 req/s):
 
-| workers | p50 | p95 | mean |
-|---|---|---|---|
-| 1 | 42.60 ms | 76.39 ms | 47.14 ms |
-| 2 | 40.78 ms | 76.35 ms | 46.01 ms |
-| 4 | 40.99 ms | 82.81 ms | 45.98 ms |
-| 8 | 40.93 ms | 74.64 ms | **45.69 ms** |
+| server | p50 | p95 | p99 | mean |
+|---|---|---|---|---|
+| uvicorn | 29.04 ms | 59.46 ms | 119.85 ms | 32.92 ms |
+| granian | 28.76 ms | 58.00 ms | 111.49 ms | 32.94 ms |
 
-Read that honestly: the spread is about 1.5 ms across an eightfold
-change in worker count, which is inside this harness's own noise. At 20
-requests per second against a roughly 28 ms upstream, fewer than one
-request is in flight on average, so there is very little for extra
-processes to do. **Worker count is not a material variable for this
-workload**, and no value in this range would have hobbled LiteLLM. 8
-was chosen because it won the mean and the p95.
+Granian is marginally ahead in the tail and identical in the mean.
+Nothing here is outside the noise, so **the choice of ASGI server does
+not materially change LiteLLM's overhead**, and uvicorn was kept
+because it is what LiteLLM's own Docker image and production guide use.
+Had granian won, it would have been used.
+
+That measurement was taken in isolation, which is the same setup that
+produced the misleading worker sweep above, so it carries the same
+caveat. One thing does corroborate it: at 1 worker the isolated LiteLLM
+mean (32.92 ms) and the full four arm run's LiteLLM mean (32.74 ms)
+agree closely, which is what you would expect if the 1 worker
+configuration is not contention sensitive, and is precisely what was
+*not* true at 8 workers.
+
+`gunicorn`, which LiteLLM's own CLI calls "better for managing multiple
+workers", cannot run on Windows at all because it needs `fcntl`.
 
 ## Why llmsim and not the local llama.cpp server
 
 A real llama.cpp server was available on this machine and was
 deliberately **not** used as the upstream for the headline numbers.
-The reasoning:
 
 1. **Queueing would swamp the signal and destroy attribution.** The
    local server runs with `--parallel 4`, so it has four decode slots.
    Above roughly four concurrent requests, additional requests wait in
    its scheduler. That wait is hundreds of milliseconds against a
-   gateway cost of one to twenty five, and it is **nonlinear in arrival
+   gateway cost of one to fourteen, and it is **nonlinear in arrival
    timing**: a gateway that adds a millisecond can push a request into
    a different batch and change its latency by an arbitrary amount. The
    measured "delta" would then be partly a property of the backend's
-   scheduler rather than of the gateway. This gets worse, not better,
-   in a three arm comparison, because the slower gateway shifts arrival
-   timing more and the queue amplifies that difference.
+   scheduler rather than of the gateway. This gets worse in a three arm
+   comparison, because the slower gateway shifts arrival timing more
+   and the queue amplifies that difference.
 
 2. **A real model is stateful across requests.** KV cache reuse and
    batch composition mean request *i* is not served identically in two
@@ -269,16 +372,17 @@ The reasoning:
    nothing to a difference and costs resolution.
 
 4. **`TIME_SCALE` only exists with a simulator.** At 0.05 the simulated
-   upstream is roughly 28 ms, so a 1.5 ms gateway cost is resolvable.
-   At real speed it would sit under three seconds of token generation.
+   upstream is roughly 19 ms, so a sub-millisecond gateway cost is
+   near the edge of resolvable. At real speed it would sit under
+   seconds of token generation and be invisible.
 
 This choice cuts against Penstock in one specific way that should be
 said plainly: a simulator is a *cheap* upstream, and a cheap upstream
 makes any gateway's fixed cost a larger fraction of the total. Against
-a real provider taking two seconds, both gateways' overheads shrink to
-a smaller share of end to end latency. LiteLLM's 24.6 ms is about 1% of
-a 2 second request. **Whether 24.6 ms matters is a question about your
-workload, not about these measurements.** See "What this does not show".
+a real provider taking two seconds, both overheads shrink to a smaller
+share of end to end latency. LiteLLM's 13.6 ms is under 1% of a 2
+second request. **Whether 13.6 ms matters is a question about your
+workload, not about these measurements.**
 
 ## Every way this comparison could still be unfair
 
@@ -286,21 +390,22 @@ Read this section before quoting anything above.
 
 1. **One machine, shared cores.** k6, three simulators, Penstock and
    LiteLLM all competed for the same 16 cores. This is the largest
-   systematic error in the harness. A core starved machine inflates a
-   gateway arm more than the baseline arm. Arms ran sequentially, which
-   limits but does not eliminate it.
+   systematic error in the harness, and the worker count episode above
+   shows it is not theoretical: contention changed LiteLLM's answer by
+   a factor of two.
 
-2. **Windows, not Linux, and this specifically costs LiteLLM.** This is
-   the most important item in this list.
+2. **Windows, not Linux, and this specifically costs LiteLLM.** The
+   most important item in this list.
    - **`uvloop` does not exist on Windows.** It replaces asyncio's
      event loop with a libuv backed one and is a material speedup for
      asyncio servers. On Linux, `uvicorn[standard]` installs it and
      LiteLLM would use it. LiteLLM ran here without it. Penstock has no
      equivalent component that Windows withholds, so this asymmetry is
      entirely LiteLLM's loss.
-   - **`gunicorn` cannot run on Windows** (it needs `fcntl`). LiteLLM's
-     own CLI calls gunicorn "better for managing multiple workers", so
-     the uvicorn supervisor used here is a second choice path.
+   - **`gunicorn` cannot run on Windows** (it needs `fcntl`).
+   - The 8 worker instability described above may well be a Windows
+     multi-process socket sharing artifact rather than anything
+     inherent to LiteLLM.
    - Go's runtime and network stack are comparatively well optimised on
      Windows, so the platform plausibly penalises the Python gateway
      more than the Go one.
@@ -318,72 +423,65 @@ Read this section before quoting anything above.
 
 4. **One backend, one workload, one model.** A single non streaming
    chat completion, one model, one provider, no fallbacks, no retries,
-   no streaming, no tool calls, no multi provider routing. That is the
+   no streaming, no tool calls, no multi provider routing. The
    narrowest possible slice of what either gateway does, chosen because
    it is the only slice where the two are doing comparable work.
 
-5. **Cold start was handled, but only approximately.** Every path got
-   30 warmup requests before k6 started, so no arm entered the
-   measurement colder than another. That is not the same as proving all
-   three had reached identical steady state. Python's lazy imports and
-   connection pool growth are harder to saturate than Go's, so residual
-   cold start bias, if any, is against LiteLLM.
+5. **Arm order is fixed.** Baseline, then Penstock, then LiteLLM. The
+   arms were not interleaved or randomised, so a monotonic machine
+   trend lands unevenly on them. The drift check bounds this at 4.1%,
+   which is small relative to LiteLLM's delta but is **larger than
+   Penstock's entire delta**. Penstock's 0.8 ms is therefore sensitive
+   to drift in a way LiteLLM's 13.6 ms is not.
 
-6. **Arm order is fixed.** The baseline runs first, then Penstock, then
-   LiteLLM. The arms were not interleaved or randomised, so a monotonic
-   machine trend lands unevenly on them. The drift check bounds this at
-   2.9%, which is smaller than the effect being measured but is not
-   zero, and 2.9% of LiteLLM's arm is larger in absolute terms than
-   Penstock's entire delta.
+6. **Some of LiteLLM's cost is features Penstock does not have.** The
+   fairness caveat that matters most for interpretation. LiteLLM's per
+   request path includes token counting, cost calculation against a
+   pricing table, callback and guardrail hook dispatch, and a router
+   abstraction built for fallbacks and load balancing across many
+   providers. Those were not switched off, because for most of them
+   there is no switch: they are what LiteLLM *is*. **Penstock is not
+   faster because it is better engineered. It is substantially faster
+   because it does less.** A reader choosing between them is trading
+   features for latency, and this page measures only one side of that
+   trade.
 
-7. **Some of LiteLLM's cost is features Penstock does not have.** This
-   is the fairness caveat that matters most for interpretation.
-   LiteLLM's per request path includes token counting, cost
-   calculation against a pricing table, callback and guardrail hook
-   dispatch, and a router abstraction built for fallbacks and load
-   balancing across many providers. Those were not switched off,
-   because for most of them there is no switch: they are what LiteLLM
-   *is*. **Penstock is not faster because it is better engineered. It
-   is substantially faster because it does less.** A reader choosing
-   between them is trading features for latency, and this page measures
-   only one side of that trade.
-
-8. **A thin profile.** `bench/profiles/groq.json` was fitted from
+7. **A thin profile.** `bench/profiles/groq.json` was fitted from
    `samples: 6` recorded completions. Its p95 is an estimate from very
-   few observations, so the absolute tail figures describe that thin
-   profile being replayed. This affects all three arms identically and
-   so mostly cancels in the deltas, but it means the absolute p95 and
-   p99 columns are softer than they look.
+   few observations. This affects all three arms identically and so
+   mostly cancels in the deltas, but the absolute p95 and p99 columns
+   are softer than they look.
 
-9. **`TIME_SCALE` is 0.05.** Simulated time is compressed so the
+8. **`TIME_SCALE` is 0.05.** Simulated time is compressed so the
    gateways' own cost is not buried under token generation. The
    gateways are therefore exercised at a concurrency far below what the
    same arrival rate produces at real speed. A gateway whose cost is
    dominated by per connection state would look better here than it
    deserves.
 
-10. **Low concurrency generally.** At 20 requests per second against a
-    28 ms upstream, under one request is in flight on average. This
-    measures per request overhead, which is what it claims to measure,
-    but it says nothing about behaviour under saturation, where
-    LiteLLM's multiple worker processes might close some of the gap and
-    where the GIL might widen it. Neither was measured.
+9. **Low concurrency generally.** At 20 requests per second against a
+   19 ms upstream, well under one request is in flight on average. This
+   measures per request overhead, which is what it claims to measure,
+   but it says nothing about saturation, where LiteLLM's process model
+   and the GIL matter most. Not measured.
 
-11. **Small samples in the tail.** 2400 samples per arm puts roughly 24
-    observations behind each p99. That is better than the harness
-    default but it is still thin, and it is visible in the negative
-    Penstock p99 delta.
+10. **Penstock's result is near the noise floor.** Quantified above.
+    This is a limitation of the harness, and it means Penstock's
+    advantage is established as "at least an order of magnitude" rather
+    than as a precise figure.
 
-12. **k6 is a client too.** Its scheduling, connection reuse and JSON
-    encoding are inside every measurement. They are inside all arms so
-    they largely cancel, but they set the noise floor quantified above.
+11. **k6 is a client too.** Its scheduling, connection reuse and JSON
+    encoding are inside every measurement. Inside all arms, so they
+    largely cancel, but they set the noise floor quantified above.
 
-13. **One run of each.** See the reproducibility section below.
+12. **Two clean runs, not twenty.** The deltas reproduce to within
+    about 1 ms, which is enough to rule out a fluke and not enough to
+    put a confidence interval on anything.
 
-14. **This was written by Penstock's authors.** The apparatus, the
+13. **This was written by Penstock's authors.** The apparatus, the
     settings, the upstream and the workload were all chosen by the side
-    that benefits from the result. Every input is committed so the
-    choices can be audited, which is the only real answer to this
+    that benefits from the result. Every input is committed and the
+    discarded runs are described, which is the only real answer to this
     objection, but it is not the same as an independent test.
 
 ## What this comparison does NOT show
@@ -399,12 +497,11 @@ Stated explicitly, because the table above is easy to over read.
   do what you need.
 
 - **It does not show that LiteLLM is slow.** It shows LiteLLM costs
-  about 24.6 ms of mean latency per request in this configuration on
+  about 13.6 ms of mean latency per request in this configuration on
   this platform. Against a real provider taking one to three seconds
-  that is roughly 1% to 2% of end to end latency, which for many
+  that is well under 1% of end to end latency, which for many
   deployments is irrelevant. It matters if you are serving a fast
-  model, if you are chaining many calls, or if you are paying for the
-  gateway's CPU at scale.
+  model, chaining many calls, or paying for the gateway's CPU at scale.
 
 - **It does not show either gateway's real world latency.** llmsim is a
   simulator on loopback. The absolute columns describe a profile being
@@ -432,9 +529,13 @@ Stated explicitly, because the table above is easy to over read.
 - **It does not show multi node behaviour.** One process each, one
   machine.
 
-- **It does not show that Penstock's tail is 2.89 ms better at p95.**
-  As the null comparison shows, Penstock's tail deltas are at or below
-  this harness's resolution.
+- **It does not show that LiteLLM is unstable.** The 60 second hangs
+  appeared only in the rejected 8 worker configuration on Windows. One
+  worker was clean across every run. Do not cite the hangs as a
+  property of LiteLLM.
+
+- **It does not show a precise Penstock tail figure.** Penstock's p95
+  and p99 deltas are below this harness's noise floor.
 
 ## Reproducing this
 
@@ -445,8 +546,9 @@ export PATH="$HOME/sdk/go/bin:$HOME/sdk/bin:$PATH"   # go and k6
 # See bench/compare/INSTALL.md if it is not built yet.
 DURATION=120s RATE=20 bash bench/compare/run.sh
 
-# The worker count sweep
+# The worker count sweep, and the ASGI server comparison
 bash bench/compare/calibrate-litellm.sh
+bash bench/compare/compare-servers.sh
 ```
 
 A result is `<run>.raw.json.gz` plus `<run>.meta.json`. Neither is

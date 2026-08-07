@@ -145,6 +145,34 @@ reproducible with `cmd/cachestudy`, and the short version is in
 Publishing a cache hit rate without its false hit rate is the norm and
 it is meaningless. This is the false hit rate.
 
+## Measured
+
+On one machine against a simulated upstream calibrated from real Groq
+traffic, 2400 samples per arm:
+
+| | added latency, mean |
+|---|---|
+| Penstock | **0.81 ms** |
+| LiteLLM 1.95.0 | **13.62 ms** |
+
+Two things that table does not say, and both matter.
+
+Penstock's p95 and p99 deltas fall **below this harness's noise floor**,
+which a null comparison of two identical arms puts at 0.96 ms. Its tail
+cost is not 0.04 ms, it is smaller than this setup can resolve, and
+quoting it as a number would be inventing precision. Only the mean is
+a measurement.
+
+Penstock is not faster because it is better engineered. It is faster
+because it does less: LiteLLM counts tokens, computes cost, dispatches
+callbacks and guardrails, and routes across far more providers. Some of
+its cost is features this gateway does not have. Windows also penalises
+it specifically, since uvloop does not run here at all.
+
+Full method, every caveat, and the runs that were discarded are in
+[docs/comparison.md](docs/comparison.md). Raw k6 output is committed
+beside the summaries in [bench/results/](bench/results/).
+
 ## Status
 
 Phases 0 through 4 are done: ingress and streaming, the provider

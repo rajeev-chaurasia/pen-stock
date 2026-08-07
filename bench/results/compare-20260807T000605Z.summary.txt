@@ -1,0 +1,49 @@
+
+------------------------------------------------------------------------
+Penstock against LiteLLM: gateway overhead
+------------------------------------------------------------------------
+gateway      : http://127.0.0.1:8080
+direct       : http://127.0.0.1:8090
+model        : llmsim-small
+duration/arm : 120s
+litellm      : http://127.0.0.1:8081
+arrival rate : 20 req/s per arm
+drift check  : on
+
+Hardware and OS are recorded by bench/run.sh in the .meta.json
+beside this run. A latency figure without that stanza is unusable.
+
+
+               direct     penstock        delta      litellm        delta
+------------------------------------------------------------------------------
+p50          15.44 ms     16.36 ms      0.92 ms     28.08 ms     12.63 ms
+p95          42.90 ms     43.60 ms      0.70 ms     59.35 ms     16.45 ms
+p99          66.90 ms     68.00 ms      1.09 ms     79.79 ms     12.88 ms
+mean         19.06 ms     19.93 ms      0.86 ms     31.65 ms     12.59 ms
+------------------------------------------------------------------------------
+samples          2400         2400                      2401
+
+How to read the delta columns
+------------------------------------------------------------------------------
+mean : the mean delta IS the mean per request overhead. Means subtract
+       exactly, so E[gateway] - E[direct] = E[overhead], even though no
+       request was ever measured both ways.
+
+p50/p95/p99 : DIFFERENCES OF QUANTILES, not quantiles of the per request
+       overhead. Quantiles do not subtract. The p95 row says how far each
+       gateway moved the 95th percentile of end to end latency, which is a
+       fair statement about the tail of the system. It does NOT say 95% of
+       requests paid less than that. Nothing here can say that, because
+       measuring one request both with and without a gateway at the same
+       time is not possible.
+
+Comparing the two delta columns to each other is the only comparison this
+run supports, and only for the one workload it sent: a single non
+streaming chat completion to one model on one provider. LiteLLM does far
+more than that. See docs/comparison.md.
+
+Drift check
+------------------------------------------------------------------------------
+direct p50 before the gateway arms : 15.44 ms
+direct p50 after  the gateway arms : 16.11 ms
+drift                              : 4.3%
