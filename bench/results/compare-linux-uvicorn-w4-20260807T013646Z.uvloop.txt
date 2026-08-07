@@ -1,0 +1,14 @@
+run_id            compare-linux-uvicorn-w4-20260807T013646Z
+server            uvicorn
+num_workers       4
+platform loop     uvloop
+
+pid 883239  no uvloop mapping   (/home/rchaurasia/sdk/litellm-venv-linux/bin/python /home/rch)
+pid 883304  no uvloop mapping   (/home/rchaurasia/sdk/litellm-venv-linux/bin/python -c from m)
+pid 883305  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 883306  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 883307  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 883308  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+
+uvloop_mapped_processes  4 of 6
+VERDICT  uvloop was loaded by the litellm process(es) this run measured.

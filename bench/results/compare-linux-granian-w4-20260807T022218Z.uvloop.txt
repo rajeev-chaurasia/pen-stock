@@ -1,0 +1,13 @@
+run_id            compare-linux-granian-w4-20260807T022218Z
+server            granian
+num_workers       4
+platform loop     uvloop
+
+pid 901795  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 901851  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 901856  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 901859  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 901862  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+
+uvloop_mapped_processes  5 of 5
+VERDICT  uvloop was loaded by the litellm process(es) this run measured.

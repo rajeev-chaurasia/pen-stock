@@ -1,0 +1,65 @@
+======================================================================
+uvloop evidence
+date        2026-08-07T01:10:00Z
+venv        /home/rchaurasia/sdk/litellm-venv-linux
+kernel      Linux 6.6.114.1-microsoft-standard-WSL2 x86_64
+======================================================================
+
+--- 1. versions -------------------------------------------------
+python      CPython 3.12.13
+litellm     1.95.0
+uvicorn     0.52.1
+fastapi     0.139.2
+httptools   0.8.0
+uvloop      0.22.1
+orjson      3.11.9
+pydantic    2.13.4
+gunicorn    23.0.0
+uvloop import OK, uvloop.__file__ = /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/__init__.py
+
+--- 2. uvicorn loop=auto resolves to what? ----------------------
+uvicorn LOOP_FACTORIES['auto'] = uvicorn.loops.auto:auto_loop_factory
+--- source of uvicorn/loops/auto.py ---
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+
+
+def auto_loop_factory(use_subprocess: bool = False) -> Callable[[], asyncio.AbstractEventLoop]:
+    try:
+        import uvloop  # noqa
+    except ImportError:  # pragma: no cover
+        from uvicorn.loops.asyncio import asyncio_loop_factory as loop_factory
+
+        return loop_factory(use_subprocess=use_subprocess)
+    else:  # pragma: no cover
+        from uvicorn.loops.uvloop import uvloop_loop_factory
+
+        return uvloop_loop_factory(use_subprocess=use_subprocess)
+
+--- 3. the loop uvicorn would build, built --------------------
+config.loop            -> auto
+get_loop_factory()     -> <function new_event_loop at 0x797df24efce0>
+factory() built        -> uvloop.Loop
+is a uvloop loop       -> True
+
+--- 4. does litellm force a loop policy? ------------------------
+  (no loop= argument passed by litellm's CLI, so uvicorn's default 'auto' applies)
+
+--- 5. RUNNING proxy: is uvloop mapped into the process? --------
+live completion through the proxy: HTTP 200
+litellm pids: 872614
+
+pid 872614  cmd: /home/rchaurasia/sdk/litellm-venv-linux/bin/python /home/rchaurasia/sdk/litellm-venv-linux
+         UVLOOP MAPPED:
+           /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+
+RESULT: uvloop IS loaded by the running LiteLLM proxy.
+
+--- 6. same probe against a deliberately uvloop-free process ----
+(a control: if this ALSO showed uvloop, check 5 would prove nothing)
+control pid 872779
+control pid 872779: no uvloop mapping, as expected. The probe discriminates.
+
+evidence written to /home/rchaurasia/penstock-bench/bench/results/uvloop-evidence.txt

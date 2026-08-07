@@ -5,10 +5,11 @@ far more features than Penstock, and any claim that Penstock is worth
 using has to survive being measured next to it.
 
 This page is that measurement. It was produced by
-`bench/compare/run.sh` on one machine, in one run, against the same
-upstream, with both gateways configured from their own documentation.
-The raw per sample output and the hardware stanza are committed beside
-it in `bench/results/`.
+`bench/compare/run.sh` on Windows and by `bench/compare/linux/run.sh`
+on Linux, each on one machine, against the same upstream, with both
+gateways configured from their own documentation. The raw per sample
+output and the hardware stanza are committed beside it in
+`bench/results/`.
 
 Read `bench/README.md` first. It is the methodology this page obeys,
 including why gateway cost is only ever reported as a difference and
@@ -16,10 +17,15 @@ why a latency number quoted without its machine is not a result.
 
 **The short version.** On the one workload where the two gateways are
 doing comparable work, Penstock added about 0.8 ms of mean latency per
-request and LiteLLM added about 13.6 ms. The difference is real and it
-reproduces. Almost everything else on this page is about the ways that
-sentence could still mislead you, including the one that nearly made
-this page overstate LiteLLM's overhead by a factor of two.
+request and LiteLLM added about 13.6 ms. That measurement was taken on
+Windows, where LiteLLM cannot use `uvloop` at all, so it was rerun on
+Linux where it can. **On Linux LiteLLM added about 12.1 ms and Penstock
+about 1.0 ms.** uvloop bought LiteLLM roughly 1.5 ms of its 13.6, which
+is a real improvement and is not close to closing the gap. The Linux
+run is the fairer of the two and is the one to quote. Almost everything
+else on this page is about the ways those sentences could still mislead
+you, including the one that nearly made this page overstate LiteLLM's
+overhead by a factor of two.
 
 ## The measurement
 
@@ -133,6 +139,330 @@ The honest conclusions:
   and noisy denominator. Say "more than an order of magnitude", not
   "17x".
 
+## The Linux rerun, which is the fairer comparison
+
+The list at the end of this page of ways the comparison could still be
+unfair has one item marked as the most important: **LiteLLM cannot use
+`uvloop` on Windows**, and the page said a Linux rerun was the single
+most valuable thing anyone could do to it. This section is that rerun.
+It is the honest correction to the table above, and the table above is
+left in place so the two can be compared.
+
+The handicap is worse than "an optional accelerator was missing".
+LiteLLM 1.95.0 branches on the platform inside its own launcher:
+
+```python
+# litellm/proxy/proxy_cli.py
+@staticmethod
+def _get_loop_type():
+    """Helper function to determine the event loop type based on platform"""
+    if sys.platform in ("win32", "cygwin", "cli"):
+        return None  # Let uvicorn choose the default loop on Windows
+    return "uvloop"
+
+# ... and at the call site:
+loop_type = ProxyInitializationHelpers._get_loop_type()
+if loop_type:
+    uvicorn_args["loop"] = loop_type
+```
+
+On Linux LiteLLM asks uvicorn for a libuv backed event loop **by name**.
+On Windows it asks for nothing and gets plain asyncio. The Windows run
+was not measuring LiteLLM with a part left out by accident. It was
+measuring a different code path inside LiteLLM, chosen by LiteLLM.
+
+### uvloop was confirmed active, not assumed
+
+"We installed uvloop" is a weaker claim than "LiteLLM ran on uvloop",
+and publishing the second on the strength of the first would be the
+same class of error this page exists to avoid. So it was proved, by
+`bench/compare/linux/verify-uvloop.sh`, whose transcript is committed at
+`bench/results/compare-linux-uvloop-evidence.txt`:
+
+1. `uvloop` imports and reports **0.22.1**.
+2. uvicorn 0.52.1's `LOOP_FACTORIES["auto"]` resolves to
+   `uvicorn.loops.auto:auto_loop_factory`, whose source imports uvloop
+   and returns `uvloop_loop_factory` when the import succeeds.
+3. Building the loop the way uvicorn builds it, via
+   `Config(loop="auto").get_loop_factory()`, yields a `uvloop.Loop`.
+4. LiteLLM's own `_get_loop_type()` returns `"uvloop"` on this platform,
+   as quoted above.
+5. **The running proxy has uvloop's compiled extension mapped into its
+   address space**, read from `/proc/<pid>/maps`:
+   `.../site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so`.
+   This is a statement about the process that served the measured
+   requests, not about a library on disk.
+6. A control process that should not have uvloop mapped does not have it
+   mapped, so check 5 is discriminating rather than vacuous.
+
+Every run repeats check 5 for itself and writes the result beside its
+own samples as `<run>.uvloop.txt`. In every one of the eight Linux runs,
+**every worker process had uvloop mapped**, and the processes that did
+not were the launcher and the supervisor, which fork workers and serve
+no requests. At 4 uvicorn workers, for example, the file records 4 of 6
+mapped, and the two unmapped pids are the launcher and the supervisor.
+
+One precision, so the evidence is not read as saying more than it does:
+uvloop being mapped in the granian run's processes is not by itself
+proof that granian's own Rust runtime used it. The claim this page makes
+about uvloop is about the uvicorn and gunicorn runs, which is where it
+matters, and the published run is uvicorn.
+
+### Results, beside the Windows results
+
+Published Linux run `compare-linux-uvicorn-w1-20260807T011936Z`. 2400
+samples per arm, 0 dropped iterations, 0 failed requests, all checks
+passed, drift 4.7%.
+
+| | direct | penstock | penstock delta | litellm | litellm delta |
+|---|---|---|---|---|---|
+| p50  | 15.68 ms | 16.67 ms | **+0.99 ms** | 28.03 ms | **+12.34 ms** |
+| p95  | 44.27 ms | 44.25 ms | **-0.03 ms** | 58.36 ms | **+14.09 ms** |
+| p99  | 66.72 ms | 68.41 ms | **+1.69 ms** | 79.46 ms | **+12.75 ms** |
+| mean | 19.36 ms | 20.39 ms | **+1.02 ms** | 31.50 ms | **+12.14 ms** |
+
+The two platforms side by side, deltas only, both at 1 worker so that
+the platform is the only thing that changed:
+
+| delta | Windows (no uvloop) | Linux (uvloop) | change |
+|---|---|---|---|
+| litellm mean  | +13.62 ms | +12.14 ms | **-1.48 ms** |
+| litellm p50   | +13.85 ms | +12.34 ms | -1.51 ms |
+| litellm p95   | +16.74 ms | +14.09 ms | -2.65 ms |
+| litellm p99   | +18.37 ms | +12.75 ms | -5.62 ms |
+| penstock mean | +0.81 ms  | +1.02 ms  | +0.21 ms |
+| penstock p50  | +0.79 ms  | +0.99 ms  | +0.20 ms |
+
+**Linux is the fairer comparison and it is the one to quote.** Every
+component either gateway is designed to use is present: LiteLLM gets
+uvloop, and it gets `gunicorn`, which Windows cannot run at all. Nothing
+was taken away from Penstock to achieve that. The Windows table remains
+above because deleting a measurement after learning it was biased, and
+in which direction, is not the same as correcting it.
+
+**How much did LiteLLM gain? About 1.5 ms of 13.6, roughly 11%.** Across
+both published runs on each platform the gain is smaller still: LiteLLM
+averaged +13.11 ms on Windows and +12.02 ms on Linux, about 1.1 ms or
+8%. The direction the Windows page predicted was right and the magnitude
+is modest. **uvloop did not close the gap.** LiteLLM's overhead remains
+more than an order of magnitude above Penstock's.
+
+Two things in that table cut against Penstock and should not be skipped:
+
+- **Penstock got slower on Linux**, from +0.81 ms to +1.02 ms of mean
+  overhead. Part of the apparent narrowing of the gap is Penstock losing
+  ground, not LiteLLM gaining it. The difference between the two
+  gateways' mean overhead went from 12.81 ms on Windows to 11.12 ms on
+  Linux, a narrowing of 1.69 ms or 13%. Of that 1.69 ms, 1.48 ms is
+  LiteLLM getting faster and 0.21 ms is Penstock getting slower.
+- **The ratio moved more than the difference.** Windows put LiteLLM's
+  mean overhead at about 17x Penstock's; Linux puts it at about 12x. The
+  advice in the null comparison section still applies: quote "more than
+  an order of magnitude", not a multiplier, because the denominator is
+  small and noisy on both platforms.
+
+### It reproduces on Linux too
+
+An independent repeat at the same settings,
+`compare-linux-uvicorn-w1-20260807T021345Z`, also clean (0 dropped, 0
+failed, drift 6.5%):
+
+| delta | published Linux run | repeat run |
+|---|---|---|
+| penstock mean | +1.02 ms | +1.04 ms |
+| penstock p50  | +0.99 ms | +1.15 ms |
+| litellm mean  | +12.14 ms | +11.90 ms |
+| litellm p50   | +12.34 ms | +12.33 ms |
+
+### The Linux noise floor, and which deltas fall below it
+
+Same construction as before: arms 1 and 4 measure the identical thing
+with the gateway arms in between, so their difference is pure
+measurement noise.
+
+| | arm 1 direct | arm 4 direct | null delta |
+|---|---|---|---|
+| p50  | 15.68 ms | 16.41 ms | 0.73 ms |
+| p95  | 44.27 ms | 45.30 ms | 1.02 ms |
+| p99  | 66.72 ms | 67.53 ms | 0.82 ms |
+| mean | 19.36 ms | 19.76 ms | 0.39 ms |
+
+The measured deltas against that floor:
+
+| statistic | noise floor | penstock delta | vs floor | litellm delta | vs floor |
+|---|---|---|---|---|---|
+| mean | 0.39 ms | +1.02 ms | 2.6x | +12.14 ms | 31x |
+| p50  | 0.73 ms | +0.99 ms | 1.4x | +12.34 ms | 17x |
+| p95  | 1.02 ms | -0.03 ms | **below floor** | +14.09 ms | 14x |
+| p99  | 0.82 ms | +1.69 ms | 2.1x | +12.75 ms | 16x |
+
+The conclusions are the same shape as on Windows:
+
+- **LiteLLM's overhead is unambiguous on Linux as well.** Every
+  statistic is between 14x and 31x the noise floor.
+- **Penstock's overhead is still barely resolvable by this harness.**
+  Its mean delta is 2.6x the floor. **Its p95 delta is below the floor,
+  and it was measured as slightly negative**, which is what a quantity
+  smaller than the measurement error looks like and is not evidence that
+  a gateway makes requests faster. In the repeat run Penstock's p95
+  (+0.99 ms against a 1.62 ms floor) and p99 (+0.11 ms against a 0.29 ms
+  floor) were both below the floor as well.
+- Therefore, unchanged: **quote Penstock's mean overhead, now about
+  1.0 ms on Linux, and nothing else.** Do not quote a Penstock tail
+  figure from this page on either platform.
+
+### How the worker count was chosen on Linux
+
+The Windows run learned, expensively, that calibrating a competitor's
+settings in isolation can invert the answer. So on Linux nothing was
+calibrated in isolation and **the Windows answer was not assumed
+either**: importing "1 worker is best" from Windows would have repeated
+the original error with the platforms swapped, since Windows had no
+gunicorn and multi-process socket sharing is exactly where the two
+platforms differ most.
+
+Instead `bench/compare/linux/sweep-workers.sh` ran the **complete four
+arm comparison** at each setting, with the full process population on
+the machine, the drift check on and the thresholds armed. Eight runs,
+64 minutes of measured load, about 70 minutes end to end:
+
+| server | workers | litellm mean | penstock mean | floor | drift | dropped | failed |
+|---|---|---|---|---|---|---|---|
+| uvicorn | 1 | **+12.14 ms** | +1.02 ms | 0.39 ms | 4.7% | 0 | 0 |
+| uvicorn | 1 (repeat) | **+11.90 ms** | +1.04 ms | 0.46 ms | 6.5% | 0 | 0 |
+| uvicorn | 2 | +13.94 ms | +1.14 ms | 0.45 ms | 6.3% | 0 | 0 |
+| uvicorn | 4 | +11.63 ms | +0.98 ms | 0.26 ms | 4.6% | 0 | 0 |
+| uvicorn | 4 (repeat) | +12.72 ms | +0.82 ms | 0.20 ms | 4.5% | 0 | 0 |
+| uvicorn | 8 | +12.88 ms | +1.04 ms | 0.42 ms | 5.9% | 0 | 0 |
+| gunicorn | 4 | +12.45 ms | +0.84 ms | 0.51 ms | 5.2% | 0 | 0 |
+| granian | 4 | +12.25 ms | +0.83 ms | 0.28 ms | 3.2% | 0 | 0 |
+
+**On Linux the setting barely matters.** Every configuration lands
+between +11.6 ms and +13.9 ms. The spread between two repeats of the
+*same* setting (uvicorn at 4 workers gave +11.63 and +12.72, a spread of
+1.09 ms) is comparable to the spread across most of the settings, so
+most of this table is noise rather than signal.
+
+**uvicorn at 1 worker was published**, for two reasons that point the
+same way: it has the lowest two run average (+12.02 ms, against
++12.18 ms for 4 workers, +12.25 ms for granian, +12.45 ms for gunicorn,
++12.88 ms at 8 workers and +13.94 ms at 2), and it is the same worker
+count the Windows run published, so the two platform tables differ in
+platform and not in configuration. Choosing 4 workers or granian instead
+would move the headline by less than one millisecond and would not
+change a sentence on this page.
+
+Three findings from that sweep are worth stating on their own:
+
+1. **The 8 worker instability was a Windows artifact.** On Windows, 8
+   workers cost LiteLLM roughly double (+24.60 ms against +13.62 ms) and
+   produced seven requests that hung to the client's 60 second timeout.
+   On Linux, 8 workers cost **+12.88 ms**, about 6% worse than 1 worker,
+   with **zero hangs, zero failed requests and zero dropped iterations**.
+   The Windows page's guess that this was a multi-process socket sharing
+   artifact of that platform is now supported by measurement. Nothing on
+   this page should be read as evidence that LiteLLM is unstable at
+   higher worker counts.
+2. **gunicorn does not help.** LiteLLM's CLI calls `--run_gunicorn`
+   "better for managing multiple workers" and it cannot run on Windows
+   at all, so it was the most likely place for a Linux-only win. Given
+   it, at 4 workers, LiteLLM measured **+12.45 ms**, against uvicorn's
+   two run average of +12.18 ms at the same worker count. That is a
+   difference well inside the run to run spread, so the honest reading
+   is that gunicorn changes nothing rather than that it lost. It was
+   offered and measured, which is the point; had it won it would have
+   been published.
+3. **granian does not change the answer either**, at +12.25 ms, which
+   agrees with the isolated Windows measurement that put granian and
+   uvicorn within noise of one another.
+
+### Linux versions
+
+Read back from
+`bench/results/compare-linux-uvicorn-w1-20260807T011936Z.meta.json`.
+
+| | |
+|---|---|
+| CPU | Intel(R) Core(TM) Ultra 7 265H (the same physical machine) |
+| Logical CPUs | 16 |
+| Memory visible | 31.1 GiB (the host has 63.5 GiB) |
+| OS | Ubuntu 22.04.5 LTS, kernel 6.6.114.1-microsoft-standard-WSL2 |
+
+| | |
+|---|---|
+| litellm | 1.95.0 (pinned to the version Windows measured) |
+| Python | CPython 3.12.13 |
+| uvicorn | 0.52.1 |
+| fastapi | 0.139.2 (same pin, same reason) |
+| httptools | 0.8.0 |
+| **uvloop** | **0.22.1, present and confirmed loaded by every worker** |
+| gunicorn | 23.0.0 (measured, did not win) |
+| orjson | 3.11.9 |
+| pydantic | 2.13.4 |
+| ASGI server | uvicorn |
+| Workers | 1 (measured choice, see above) |
+
+Every LiteLLM dependency version is identical to the Windows run except
+the two Windows could not provide. That is deliberate: the two platform
+tables should differ in platform, not in program.
+
+| | |
+|---|---|
+| Penstock binary SHA256 prefix | `62a6ea7df971b165` |
+| Penstock config | `bench/config/gateway.yaml`, unmodified |
+| Go | go1.26.5, `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` |
+| k6 | v1.3.0 (commit/5870e99ae8), linux/amd64 |
+
+Same k6 version and commit as the Windows run, same Go version, same
+source, same unmodified Penstock bench config, same profile, same seed,
+same time scale, same arrival rate, same VU pool, same arm order, same
+gaps, same warmup, same drift check, same thresholds.
+
+### What is still unequal, on Linux
+
+Everything in the general list at the end of this page still applies,
+minus the Windows specific items. What is new or changed:
+
+1. **This is WSL2, not bare metal Linux.** It is a real Linux kernel
+   with real uvloop, which is what the rerun needed, but it is a
+   virtual machine on the same Windows host rather than a machine
+   booted from Linux. Both gateways and the load generator all run
+   inside it, so the effect largely cancels in the deltas, and the
+   direct baselines agree closely across the two platforms (19.36 ms on
+   Linux against 19.12 ms on Windows), which is the evidence that it is
+   not distorting much. It is still not a bare metal result and should
+   not be quoted as one.
+2. **Penstock's own number got worse here** and that is reported rather
+   than explained away. See the side by side table above.
+3. **The Go binaries were cross compiled from the Windows host.** Same
+   Go version and same source, but the build host differs from the run
+   host. `CGO_ENABLED=0`, so the result is a static binary with no
+   platform libc dependency.
+4. **The memory visible to the VM is half the host's.** Neither gateway
+   came close to using it at this load, but it is a difference and it is
+   recorded.
+5. **Some of LiteLLM's cost is still features Penstock does not have.**
+   This is the fairness caveat that matters most and no operating system
+   fixes it. LiteLLM's per request path still includes token counting,
+   cost calculation against a pricing table, callback and guardrail hook
+   dispatch, and a router abstraction built for fallbacks and load
+   balancing across many providers. Most of those have no off switch
+   because they are what LiteLLM *is*. **Penstock is not faster because
+   it is better engineered. It is substantially faster because it does
+   less.** The Linux rerun removed a platform handicap; it did not and
+   could not remove this one.
+6. **The fastapi pin is unchanged.** 0.139.2, because LiteLLM 1.95.0
+   still cannot import on 0.140 or later. Whether a newer fastapi is
+   faster is still unmeasured, because it still does not run.
+7. **Arm order is still fixed** and drift on Linux ran 3.2% to 6.5%,
+   slightly higher than the Windows run's 4.1%. That is comfortably
+   inside the 10% threshold and it is **larger than Penstock's entire
+   delta**, so Penstock's 1.0 ms remains sensitive to drift in a way
+   LiteLLM's 12.1 ms is not.
+8. **Two clean runs per configuration, not twenty.** Eight full runs
+   were made in total and all eight are committed, including the six
+   that were not published as the headline.
+
 ## The mistake this page nearly published
 
 This is the most important section for anyone judging whether to trust
@@ -187,8 +517,13 @@ Two things follow, and both are worth more than the headline number:
    deleted, because the record of having got this wrong is part of the
    evidence that the current number is not similarly wrong.
 
-Whether one worker is optimal on Linux, or on a machine not shared with
-five other processes, was not tested and should not be assumed.
+Whether one worker is optimal on Linux was, at the time this section
+was written, untested. It has since been tested: see "How the worker
+count was chosen on Linux" above. The answer is that on Linux the
+worker count barely matters, every setting from 1 to 8 lands within
+about 2 ms, and the 8 worker instability seen here did not reproduce.
+Whether one worker is optimal on a machine **not** shared with five
+other processes is still untested and should still not be assumed.
 
 ## Runs that were thrown away, and why
 
@@ -219,6 +554,10 @@ settings: the settings were changed, for a stated reason, and both runs
 under the new settings are reported.
 
 ## Versions
+
+This section describes the **Windows** run. The Linux run's versions and
+hardware are in "Linux versions" above, and the two are deliberately
+identical except for the components Windows cannot provide.
 
 Read back from `bench/results/compare-20260807T001638Z.meta.json`.
 
@@ -394,8 +733,10 @@ Read this section before quoting anything above.
    shows it is not theoretical: contention changed LiteLLM's answer by
    a factor of two.
 
-2. **Windows, not Linux, and this specifically costs LiteLLM.** The
-   most important item in this list.
+2. **Windows, not Linux, and this specifically costs LiteLLM. RESOLVED:
+   the rerun was done, see "The Linux rerun" above.** This was the most
+   important item in this list, and it is kept here with its original
+   reasoning so the prediction can be checked against the result.
    - **`uvloop` does not exist on Windows.** It replaces asyncio's
      event loop with a libuv backed one and is a material speedup for
      asyncio servers. On Linux, `uvicorn[standard]` installs it and
@@ -412,6 +753,17 @@ Read this section before quoting anything above.
 
    **A Linux rerun is the single most valuable thing anyone could do to
    this page**, and the LiteLLM number should be expected to improve.
+
+   **What the rerun found.** The direction was right and the size was
+   modest. With uvloop confirmed active, LiteLLM's mean overhead fell
+   from 13.62 ms to 12.14 ms, about 11%. gunicorn was given to LiteLLM
+   and did not help. The 8 worker instability did not reproduce, which
+   supports the guess above that it was a Windows artifact. Penstock's
+   own overhead rose from 0.81 ms to 1.02 ms, so the gap between the
+   two gateways narrowed by 13% rather than by the 11% LiteLLM gained.
+   **Quote the Linux numbers.** This item is no longer a reason to
+   distrust the conclusion, and it is still a reason to distrust the
+   Windows table specifically.
 
 3. **A pinned fastapi.** `litellm[proxy]` declares
    `fastapi>=0.136.3,<1.0`, but LiteLLM 1.95.0 imports
@@ -531,13 +883,18 @@ Stated explicitly, because the table above is easy to over read.
 
 - **It does not show that LiteLLM is unstable.** The 60 second hangs
   appeared only in the rejected 8 worker configuration on Windows. One
-  worker was clean across every run. Do not cite the hangs as a
+  worker was clean across every run. **On Linux, 8 workers produced no
+  hangs, no failed requests and no dropped iterations**, which is direct
+  evidence that the hangs were a property of that platform and that
+  configuration rather than of LiteLLM. Do not cite the hangs as a
   property of LiteLLM.
 
 - **It does not show a precise Penstock tail figure.** Penstock's p95
   and p99 deltas are below this harness's noise floor.
 
 ## Reproducing this
+
+### The Windows run
 
 ```bash
 export PATH="$HOME/sdk/go/bin:$HOME/sdk/bin:$PATH"   # go and k6
@@ -551,6 +908,36 @@ bash bench/compare/calibrate-litellm.sh
 bash bench/compare/compare-servers.sh
 ```
 
+### The Linux run, which is the one to quote
+
+Cross compile the two Go binaries first, from any host with Go:
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -o bench/compare/linux/bin/penstock ./cmd/penstock
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -o bench/compare/linux/bin/llmsim   ./cmd/llmsim
+```
+
+Then, on the Linux side (this run used WSL2 Ubuntu 22.04; `/mnt/c` is
+slow enough to show up in a millisecond scale measurement, so `setup.sh`
+copies everything it needs into the Linux filesystem):
+
+```bash
+bash bench/compare/linux/setup.sh          # k6, the venv, the tree
+bash bench/compare/linux/verify-uvloop.sh  # prove uvloop is actually used
+bash bench/compare/linux/run.sh            # one four arm run
+
+# The worker and ASGI server sweep, each point a FULL four arm run
+CONFIGS="uvicorn:1 uvicorn:2 uvicorn:4 uvicorn:8 gunicorn:4 granian:4" \
+  bash bench/compare/linux/sweep-workers.sh
+
+bash bench/compare/linux/sweep-table.sh    # one line per run
+python3 bench/compare/linux/report.py "bench/results/compare-linux-*.summary.json"
+bash bench/compare/linux/collect.sh        # copy artifacts into the repo
+```
+
 A result is `<run>.raw.json.gz` plus `<run>.meta.json`. Neither is
 worth anything alone, and neither is the table on this page without
-both.
+both. The Linux runs add `<run>.uvloop.txt`, which is what turns "we
+installed uvloop" into "this process ran on uvloop".

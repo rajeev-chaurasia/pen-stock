@@ -1,0 +1,15 @@
+# The cross compiled Linux binaries.
+#
+# The root .gitignore anchors its binary patterns at the repository root
+# (/bin/, /penstock, /llmsim) on purpose, so it does not reach this
+# directory. These are build artifacts like any other: reproduce them
+# with the two commands in setup.sh's header, or from the "Reproducing
+# this" section of docs/comparison.md.
+#
+#   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/penstock ./cmd/penstock
+#   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/llmsim   ./cmd/llmsim
+#
+# The binary that produced the published numbers is identified by the
+# SHA256 prefix recorded in each run's .meta.json, which is what
+# fingerprinting exists for.
+bin/

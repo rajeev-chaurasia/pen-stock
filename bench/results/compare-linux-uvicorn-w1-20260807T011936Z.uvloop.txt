@@ -1,0 +1,9 @@
+run_id            compare-linux-uvicorn-w1-20260807T011936Z
+server            uvicorn
+num_workers       1
+platform loop     uvloop
+
+pid 877256  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+
+uvloop_mapped_processes  1 of 1
+VERDICT  uvloop was loaded by the litellm process(es) this run measured.

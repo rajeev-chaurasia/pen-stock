@@ -1,0 +1,63 @@
+{
+  "run_id": "compare-linux-uvicorn-w4-20260807T013646Z",
+  "scenario": "compare_litellm",
+  "started_utc": "2026-08-07T01:37:27Z",
+  "platform_note": "Linux rerun of the comparison. The Windows run is unfair to LiteLLM because uvloop does not exist on Windows and litellm 1.95.0 explicitly requests it on every other platform.",
+
+  "hardware": {
+    "cpu": "Intel(R) Core(TM) Ultra 7 265H",
+    "logical_cpus": "16",
+    "memory": "31.1 GiB",
+    "os": "Ubuntu 22.04.5 LTS Linux 6.6.114.1-microsoft-standard-WSL2",
+    "note": "k6, three llmsim instances, penstock and litellm all ran on this one machine and competed for these cores"
+  },
+
+  "toolchain": {
+    "go": "binaries cross compiled with go1.26.5 windows/amd64, GOOS=linux GOARCH=amd64 CGO_ENABLED=0",
+    "k6": "k6 v1.3.0 (commit/5870e99ae8, go1.25.1, linux/amd64)",
+    "python": "CPython 3.12.13"
+  },
+
+  "penstock": {
+    "binary_sha256_prefix": "62a6ea7df971b165",
+    "config": "bench/config/gateway.yaml",
+    "listen": "http://127.0.0.1:8080",
+    "note": "unmodified bench/config/gateway.yaml, the same file its own flagship benchmark uses"
+  },
+
+  "litellm": {
+    "version": "1.95.0",
+    "config": "bench/compare/litellm.config.yaml",
+    "launcher": "bench/compare/linux/start-litellm.sh",
+    "listen": "http://127.0.0.1:8081",
+    "asgi_server": "uvicorn",
+    "num_workers": "4",
+    "deps": "uvicorn==0.52.1, fastapi==0.139.2, httptools==0.8.0, uvloop==0.22.1, orjson==3.11.9, pydantic==2.13.4, gunicorn==23.0.0",
+    "event_loop": "uvloop, requested by litellm proxy_cli._get_loop_type() on non-Windows",
+    "uvloop_evidence": "uvloop_mapped_processes  4 of 6",
+    "uvloop_evidence_file": "bench/results/compare-linux-uvicorn-w4-20260807T013646Z.uvloop.txt",
+    "steelman": "LITELLM_MODE=PRODUCTION, LITELLM_LOG=ERROR, telemetry off, local model cost map, json_logs, set_verbose false, no database, no redis, no callbacks, no guardrails, no cache, store_model_in_db false",
+    "handicaps_lifted_versus_windows": "uvloop present and in use; gunicorn importable"
+  },
+
+  "upstream": {
+    "simulator": "llmsim",
+    "profile_path": "bench/profiles/groq.json",
+    "profile_status": "calibrated",
+    "profile_recorded_samples": "6",
+    "seed": "1",
+    "time_scale": "0.05",
+    "instances": "three, identically seeded: one for the baseline, one behind penstock, one behind litellm"
+  },
+
+  "load": {
+    "duration_per_arm": "120s",
+    "arms": "direct_a, via_penstock, via_litellm, direct_b",
+    "rate_per_second": "20",
+    "pre_allocated_vus": "50",
+    "max_vus": "200",
+    "arm_gap": "5s",
+    "warmup_requests_per_path": "30",
+    "drift_check": "true"
+  }
+}
