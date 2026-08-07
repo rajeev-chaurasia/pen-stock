@@ -1,0 +1,42 @@
+
+------------------------------------------------------------------------
+Penstock soak
+------------------------------------------------------------------------
+gateway      : http://127.0.0.1:8080
+direct       : http://127.0.0.1:8090
+model        : llmsim-small
+soak duration: 20m
+vus          : 3
+think time   : 1s
+edge window  : 25% at each end
+
+Hardware and OS are recorded by bench/run.sh in the .meta.json
+beside this run. A latency figure without that stanza is unusable.
+
+
+Latency drift across the run
+quantile         early          late       drift
+------------------------------------------------------------------------
+p50           57.20 ms      62.02 ms       +8.4%
+p95          164.15 ms     181.64 ms      +10.7%
+p99          275.84 ms     275.22 ms       -0.2%
+mean          73.85 ms      76.62 ms       +3.8%
+------------------------------------------------------------------------
+samples            839           835
+total requests : 3352
+failed requests: 0
+
+No latency drift beyond 20% between the first and last 25% of
+the run. That is evidence against a leak of the kind that shows
+up as degradation, and it is not evidence against a leak that
+only grows memory. Read the .rss.csv beside this run.
+
+Admin listener
+------------------------------------------------------------------------
+scrapes        : 80
+failures       : 0
+p95 latency    : 2.31 ms
+
+Go runtime series (go_memstats_*, go_goroutines) are not on this
+registry, so heap and goroutine growth cannot be read here. See
+the note at the top of this file.
