@@ -538,7 +538,7 @@ func TestStreamRejectsUnparsableEvent(t *testing.T) {
 func TestStreamBoundsOneEvent(t *testing.T) {
 	// A single data line that never terminates must not be buffered
 	// without limit.
-	oversized := "data: {\"x\":\"" + strings.Repeat("a", maxEventBytes+1024) + "\"}\n\n"
+	oversized := "data: {\"x\":\"" + strings.Repeat("a", providers.MaxSSEEventBytes+1024) + "\"}\n\n"
 	reader, cleanup := streamOnce(t, oversized)
 	defer cleanup()
 
@@ -547,8 +547,8 @@ func TestStreamBoundsOneEvent(t *testing.T) {
 	if !errors.As(err, &pe) {
 		t.Fatalf("stream ended with %v, want a *providers.ProviderError", err)
 	}
-	if !errors.Is(err, errEventTooLarge) {
-		t.Errorf("error %v does not wrap errEventTooLarge", err)
+	if !errors.Is(err, providers.ErrSSEEventTooLarge) {
+		t.Errorf("error %v does not wrap ErrSSEEventTooLarge", err)
 	}
 }
 
@@ -840,5 +840,31 @@ func TestFromConfigRegistersTheGeminiKind(t *testing.T) {
 	}
 	if p.baseURL != DefaultBaseURL {
 		t.Errorf("baseURL = %q, want the default when config leaves it empty", p.baseURL)
+	}
+}
+
+// A body that simply stops mid event is byte for byte what a severed
+// connection looks like, so the pending data is dropped rather than
+// handed on as a chunk. The shared SSE scanner enforces this for every
+// adapter, and this is gemini's guard on it: without one, a change to
+// that rule could pass the suite here while corrupting real streams.
+func TestTornEventAtEOFIsDiscarded(t *testing.T) {
+	reader, cleanup := streamOnce(t,
+		`data: {"candidates":[{"content":{"parts":[{"text":"Hi"}],"role":"model"},"index":0}]}`+"\n\n"+
+			`data: {"candidates":[{"content":{"parts":[{"text":"trunca`)
+	defer cleanup()
+
+	first, err := reader.Recv()
+	if err != nil {
+		t.Fatalf("first Recv: %v", err)
+	}
+	if !strings.Contains(string(first.Data), "Hi") {
+		t.Fatalf("first chunk = %q, want the complete event", first.Data)
+	}
+
+	// No finishReason arrived, so the stream is truncated rather than
+	// finished, and the torn half must not surface at all.
+	if _, err = reader.Recv(); !errors.Is(err, providers.ErrStreamTruncated) {
+		t.Fatalf("Recv after a torn event = %v, want ErrStreamTruncated", err)
 	}
 }

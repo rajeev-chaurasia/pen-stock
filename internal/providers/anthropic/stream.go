@@ -1,13 +1,11 @@
 package anthropic
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,18 +14,6 @@ import (
 )
 
 const (
-	sseDataPrefix  = "data:"
-	sseEventPrefix = "event:"
-	sseCommentByte = ':'
-	sseLineJoiner  = "\n"
-
-	// maxEventBytes bounds how much of a single SSE event is held in
-	// memory. An Anthropic event is a few KB, so 1 MiB leaves ample
-	// headroom while keeping a hostile upstream from forcing unbounded
-	// allocation through a never-terminated line. The response as a
-	// whole is never buffered.
-	maxEventBytes int = 1 << 20
-
 	// Anthropic's stream is event typed: the name on the event line,
 	// not the shape of the payload, says what arrived.
 	eventMessageStart      = "message_start"
@@ -38,17 +24,6 @@ const (
 
 	deltaTypeText = "text_delta"
 )
-
-// errEventTooLarge marks an SSE event that exceeded maxEventBytes.
-var errEventTooLarge = errors.New("sse event exceeds size limit")
-
-// sseEvent is one parsed event. A keepalive carries nothing and exists
-// only to prove the upstream is still working.
-type sseEvent struct {
-	name      string
-	data      string
-	keepalive bool
-}
 
 // streamPayload is every event body this adapter reads, in one struct:
 // the delta member is shared by content_block_delta (text) and
@@ -91,12 +66,13 @@ type chunkDelta struct {
 }
 
 // streamReader turns an event-typed Anthropic SSE body into OpenAI
-// chunks. It holds at most maxEventBytes of one event at a time.
+// chunks. Framing is the shared providers.SSEScanner, which holds at
+// most one event in memory; the response is never buffered whole.
 type streamReader struct {
 	ctx      context.Context
 	provider string
 	body     io.ReadCloser
-	br       *bufio.Reader
+	sse      *providers.SSEScanner
 	created  int64
 
 	closeOnce sync.Once
@@ -128,7 +104,7 @@ func newStreamReader(ctx context.Context, provider, model string, body io.ReadCl
 		provider: provider,
 		model:    model,
 		body:     body,
-		br:       bufio.NewReader(body),
+		sse:      providers.NewSSEScanner(body),
 		created:  time.Now().Unix(),
 	}
 }
@@ -146,14 +122,14 @@ func (r *streamReader) Recv() (providers.StreamChunk, error) {
 	// Several Anthropic events carry no OpenAI chunk, so one Recv may
 	// have to consume more than one of them.
 	for {
-		ev, err := r.nextEvent()
+		ev, err := r.sse.Next()
 		if err != nil {
 			userClosed := r.closed.Load()
 			_ = r.Close()
 			r.finish(r.recvError(err, userClosed))
 			return providers.StreamChunk{}, r.termErr
 		}
-		if ev.keepalive {
+		if ev.Keepalive {
 			return providers.StreamChunk{Keepalive: true}, nil
 		}
 
@@ -195,14 +171,14 @@ func (r *streamReader) finish(err error) {
 // nil chunk means the event carried only structure
 // (content_block_start, content_block_stop) or state this reader
 // accumulates rather than forwards.
-func (r *streamReader) translate(ev sseEvent) (*providers.StreamChunk, error) {
+func (r *streamReader) translate(ev providers.SSEEvent) (*providers.StreamChunk, error) {
 	var payload streamPayload
-	if ev.data != "" {
-		if err := json.Unmarshal([]byte(ev.data), &payload); err != nil {
+	if ev.Data != "" {
+		if err := json.Unmarshal([]byte(ev.Data), &payload); err != nil {
 			return nil, r.protocolError("decode stream event", err)
 		}
 	}
-	name := ev.name
+	name := ev.Name
 	if name == "" {
 		// Some proxies strip the event line. The payload names itself
 		// too, so the stream is still readable without it.
@@ -290,76 +266,6 @@ func (r *streamReader) chunk(delta chunkDelta, finish *string, usage *providers.
 	return &providers.StreamChunk{Data: data, Usage: usage}, nil
 }
 
-// nextEvent reads one SSE event, returning its name and joined data.
-// CRLF endings and data split across lines are handled per the SSE
-// spec. Comment lines surface as keepalives rather than being
-// swallowed, because a backend may send nothing else during a long time
-// to first token. An event larger than maxEventBytes aborts with
-// errEventTooLarge.
-func (r *streamReader) nextEvent() (sseEvent, error) {
-	var ev sseEvent
-	var data []string
-	haveData := false
-	remaining := maxEventBytes
-	for {
-		line, err := r.readLine(&remaining)
-		if len(line) > 0 {
-			trimmed := strings.TrimRight(line, "\r\n")
-			switch {
-			case trimmed == "":
-				if haveData || ev.name != "" {
-					ev.data = strings.Join(data, sseLineJoiner)
-					return ev, nil
-				}
-				// Blank line outside an event; the next one starts with
-				// a fresh budget.
-				remaining = maxEventBytes
-			case trimmed[0] == sseCommentByte:
-				if !haveData && ev.name == "" {
-					return sseEvent{keepalive: true}, nil
-				}
-			case strings.HasPrefix(trimmed, sseDataPrefix):
-				data = append(data, fieldValue(trimmed, sseDataPrefix))
-				haveData = true
-			case strings.HasPrefix(trimmed, sseEventPrefix):
-				ev.name = fieldValue(trimmed, sseEventPrefix)
-			default:
-				// id:, retry: and unknown fields carry nothing we need.
-			}
-		}
-		if err != nil {
-			// Pending event data at EOF is discarded, per the SSE spec.
-			// Delivering a half-arrived event would hand the caller torn
-			// JSON that looks like a complete chunk.
-			return sseEvent{}, err
-		}
-	}
-}
-
-func fieldValue(line, prefix string) string {
-	return strings.TrimPrefix(strings.TrimPrefix(line, prefix), " ")
-}
-
-// readLine returns one line including its terminator, charging its size
-// against the per-event budget. ReadSlice keeps the buffered reader from
-// accumulating a never-terminated line the way ReadString would; pieces
-// are reassembled here under the budget.
-func (r *streamReader) readLine(remaining *int) (string, error) {
-	var line []byte
-	for {
-		chunk, err := r.br.ReadSlice('\n')
-		*remaining -= len(chunk)
-		if *remaining < 0 {
-			return "", errEventTooLarge
-		}
-		line = append(line, chunk...)
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		return string(line), err
-	}
-}
-
 // recvError decides how the stream ended.
 //
 // TRUNCATION RULE: Anthropic sends no [DONE] sentinel. The message_stop
@@ -376,11 +282,11 @@ func (r *streamReader) recvError(err error, userClosed bool) error {
 		}
 		return providers.ErrStreamTruncated
 	}
-	if errors.Is(err, errEventTooLarge) {
+	if errors.Is(err, providers.ErrSSEEventTooLarge) {
 		return &providers.ProviderError{
 			Provider: r.provider,
 			Class:    providers.ErrClassUpstream,
-			Message:  fmt.Sprintf("upstream SSE event exceeds %d byte limit", maxEventBytes),
+			Message:  fmt.Sprintf("upstream SSE event exceeds %d byte limit", providers.MaxSSEEventBytes),
 			Err:      err,
 		}
 	}

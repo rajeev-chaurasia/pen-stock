@@ -1,13 +1,11 @@
 package gemini
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,23 +13,9 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
-const (
-	sseDataPrefix  = "data:"
-	sseCommentByte = ':'
-
-	// maxEventBytes bounds how much of a single SSE event is held in
-	// memory. A well-formed Gemini event is a few KB, so 1 MiB leaves
-	// ample headroom while keeping a hostile upstream from forcing
-	// unbounded allocation through a never-terminated line.
-	maxEventBytes int = 1 << 20
-)
-
-// errEventTooLarge marks an SSE event that exceeded maxEventBytes.
-var errEventTooLarge = errors.New("sse event exceeds size limit")
-
 // streamReader turns a streamGenerateContent SSE body into OpenAI shaped
-// StreamChunks. It holds at most maxEventBytes of one event in memory at
-// a time; the response is never buffered whole.
+// StreamChunks. Framing is the shared providers.SSEScanner, which holds
+// at most one event in memory; the response is never buffered whole.
 //
 // COMPLETENESS. The OpenAI wire ends a stream with a "data: [DONE]"
 // sentinel, so an adapter there can treat a missing sentinel as proof of
@@ -52,7 +36,7 @@ type streamReader struct {
 	ctx      context.Context
 	provider string
 	body     io.ReadCloser
-	br       *bufio.Reader
+	sse      *providers.SSEScanner
 
 	// id, created and model make the emitted chunks look like one
 	// coherent OpenAI stream. Gemini identifies neither the completion
@@ -74,19 +58,12 @@ type streamReader struct {
 	termErr   error
 }
 
-// event is one parsed SSE event. A keepalive carries no data and exists
-// only to prove the upstream is still working.
-type event struct {
-	data      string
-	keepalive bool
-}
-
 func newStreamReader(ctx context.Context, provider, model string, body io.ReadCloser) *streamReader {
 	return &streamReader{
 		ctx:      ctx,
 		provider: provider,
 		body:     body,
-		br:       bufio.NewReader(body),
+		sse:      providers.NewSSEScanner(body),
 		id:       newCompletionID(),
 		created:  time.Now().Unix(),
 		model:    model,
@@ -110,26 +87,33 @@ func (r *streamReader) Recv() (providers.StreamChunk, error) {
 		return providers.StreamChunk{}, r.termErr
 	}
 
-	ev, err := r.nextEvent()
-	if err != nil {
-		userClosed := r.closed.Load()
-		_ = r.Close()
-		r.finish(r.recvError(err, userClosed))
-		return providers.StreamChunk{}, r.termErr
-	}
-	if ev.keepalive {
-		// Report liveness so the caller can hold its idle budget open
-		// during a long time to first token.
-		return providers.StreamChunk{Keepalive: true}, nil
-	}
+	for {
+		ev, err := r.sse.Next()
+		if err != nil {
+			userClosed := r.closed.Load()
+			_ = r.Close()
+			r.finish(r.recvError(err, userClosed))
+			return providers.StreamChunk{}, r.termErr
+		}
+		if ev.Keepalive {
+			// Report liveness so the caller can hold its idle budget open
+			// during a long time to first token.
+			return providers.StreamChunk{Keepalive: true}, nil
+		}
+		if !ev.HasData {
+			// Gemini carries everything in the data field, so an event
+			// named but never filled in is nothing to forward.
+			continue
+		}
 
-	chunk, err := r.translateEvent(ev.data)
-	if err != nil {
-		_ = r.Close()
-		r.finish(err)
-		return providers.StreamChunk{}, r.termErr
+		chunk, err := r.translateEvent(ev.Data)
+		if err != nil {
+			_ = r.Close()
+			r.finish(err)
+			return providers.StreamChunk{}, r.termErr
+		}
+		return chunk, nil
 	}
-	return chunk, nil
 }
 
 // Close releases the response body. Safe to call twice and safe to call
@@ -207,70 +191,6 @@ func (r *streamReader) translateEvent(data string) (providers.StreamChunk, error
 	return chunk, nil
 }
 
-// nextEvent reads one SSE event and returns its joined data payload.
-// Non-data fields are skipped; CRLF endings and data split across
-// multiple lines are handled per the SSE spec. Comment lines surface as
-// keepalives rather than being swallowed, because some backends send
-// nothing else during a long time to first token. An event larger than
-// maxEventBytes aborts with errEventTooLarge.
-func (r *streamReader) nextEvent() (event, error) {
-	var data []string
-	haveData := false
-	remaining := maxEventBytes
-	for {
-		line, err := r.readLine(&remaining)
-		if len(line) > 0 {
-			trimmed := strings.TrimRight(line, "\r\n")
-			switch {
-			case trimmed == "":
-				if haveData {
-					return event{data: strings.Join(data, "\n")}, nil
-				}
-				// blank line outside an event; the next event starts
-				// with a fresh budget
-				remaining = maxEventBytes
-			case trimmed[0] == sseCommentByte:
-				if !haveData {
-					return event{keepalive: true}, nil
-				}
-			case strings.HasPrefix(trimmed, sseDataPrefix):
-				value := strings.TrimPrefix(trimmed, sseDataPrefix)
-				value = strings.TrimPrefix(value, " ")
-				data = append(data, value)
-				haveData = true
-			default:
-				// event:, id:, retry: and unknown fields carry nothing we need.
-			}
-		}
-		if err != nil {
-			// Pending event data at EOF is discarded, per the SSE spec.
-			// Delivering a half-arrived event would hand the caller torn
-			// JSON that looks like a complete chunk.
-			return event{}, err
-		}
-	}
-}
-
-// readLine returns one line including its terminator, charging its size
-// against the per-event budget. ReadSlice keeps the buffered reader from
-// accumulating a never-terminated line the way ReadString would; pieces
-// are reassembled here under the budget.
-func (r *streamReader) readLine(remaining *int) (string, error) {
-	var line []byte
-	for {
-		chunk, err := r.br.ReadSlice('\n')
-		*remaining -= len(chunk)
-		if *remaining < 0 {
-			return "", errEventTooLarge
-		}
-		line = append(line, chunk...)
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		return string(line), err
-	}
-}
-
 func (r *streamReader) recvError(err error, userClosed bool) error {
 	switch {
 	case errors.Is(err, io.EOF):
@@ -282,11 +202,11 @@ func (r *streamReader) recvError(err error, userClosed bool) error {
 		// finished turn from a severed one, and calling it io.EOF would
 		// let the caller present a partial answer as a finished one.
 		return providers.ErrStreamTruncated
-	case errors.Is(err, errEventTooLarge):
+	case errors.Is(err, providers.ErrSSEEventTooLarge):
 		return &providers.ProviderError{
 			Provider: r.provider,
 			Class:    providers.ErrClassUpstream,
-			Message:  fmt.Sprintf("upstream SSE event exceeds %d byte limit", maxEventBytes),
+			Message:  fmt.Sprintf("upstream SSE event exceeds %d byte limit", providers.MaxSSEEventBytes),
 			Err:      err,
 		}
 	case errors.Is(err, context.DeadlineExceeded) || r.ctx.Err() == context.DeadlineExceeded:
