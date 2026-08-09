@@ -63,6 +63,13 @@ func run() error {
 	if key == "" {
 		return fmt.Errorf("%s is empty; export a real key to record against a real provider", *keyEnv)
 	}
+	// Without this the loop below runs zero times and still writes a
+	// profile, one full of zeros, and exits successfully. Every benchmark
+	// arm replays that profile, so the failure would surface as numbers
+	// rather than as an error.
+	if *samples < 1 {
+		return fmt.Errorf("samples is %d; recording nothing would write a profile of zeros that every benchmark then replays", *samples)
+	}
 	if *name == "" {
 		*name = *model
 	}
@@ -92,22 +99,16 @@ func run() error {
 			i+1, obs.ttft.Seconds()*1000, obs.tokens, median(toMillis(obs.gaps)))
 	}
 
-	profile := map[string]any{
-		"name":          *name,
-		"ttft_ms":       stats(ttfts),
-		"itl_ms":        stats(itls),
-		"output_tokens": stats(tokens),
-	}
 	// The provenance travels with the numbers. A profile whose origin
 	// is unknown is indistinguishable from one somebody invented.
-	profile["recorded"] = map[string]any{
+	profile := buildProfile(*name, ttfts, itls, tokens, map[string]any{
 		"provider_base_url": *baseURL,
 		"model":             *model,
 		"samples":           *samples,
 		"chunk_samples":     len(itls),
 		"recorded_at":       time.Now().UTC().Format(time.RFC3339),
 		"prompt":            *prompt,
-	}
+	})
 
 	encoded, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
@@ -218,6 +219,20 @@ func hasContent(payload string) bool {
 		}
 	}
 	return false
+}
+
+// buildProfile turns the recorded samples into the document llmsim
+// loads. The field names here are a contract with llmsim.Profile, so
+// this is kept out of run where it can be exercised without spending
+// tokens against a provider.
+func buildProfile(name string, ttfts, itls, tokens []float64, recorded map[string]any) map[string]any {
+	return map[string]any{
+		"name":          name,
+		"ttft_ms":       stats(ttfts),
+		"itl_ms":        stats(itls),
+		"output_tokens": stats(tokens),
+		"recorded":      recorded,
+	}
 }
 
 // stats reduces samples to the mean and p95 llmsim's profile expects.
