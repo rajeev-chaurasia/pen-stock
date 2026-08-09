@@ -123,19 +123,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 // usage when the upstream answered, and by returning the claim when it
 // produced nothing. Leaving it open would strand the estimate against
 // the tenant until it expired.
-func (s *Server) settleOrAbort(ctx context.Context, res *budget.Reservation, usage *providers.Usage, model, provider string) {
-	if s.accounting == nil || res == nil {
+func (s *Server) settleOrAbort(ctx context.Context, reservation *budget.Reservation, usage *providers.Usage, model, provider string) {
+	if s.accounting == nil || reservation == nil {
 		return
 	}
 	if usage == nil {
-		s.accounting.Abort(ctx, res)
+		s.accounting.Abort(ctx, reservation)
 		return
 	}
-	usd := s.accounting.Settle(ctx, res, *usage, model, provider)
-	s.metrics.AddCost(string(res.Tenant), provider, model, usd)
+	usd := s.accounting.Settle(ctx, reservation, *usage, model, provider)
+	s.metrics.AddCost(string(reservation.Tenant), provider, model, usd)
 }
 
-func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation, cacheRes cache.Result) {
+func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, reservation *budget.Reservation, cacheRes cache.Result) {
 	ctx := r.Context()
 	if timeout := msToDuration(s.cfg.UpstreamTimeoutMS); timeout > 0 {
 		var cancel context.CancelFunc
@@ -146,7 +146,7 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 	resp, err := prov.Chat(ctx, req)
 	if err != nil {
 		// Nothing was produced, so nothing is owed.
-		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
+		s.settleOrAbort(r.Context(), reservation, nil, req.Model, prov.Name())
 		s.writeUpstreamError(w, err)
 		return
 	}
@@ -156,7 +156,7 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, prov provider
 	answered := answeringProvider(prov.Name(), resp.Provider)
 	logInfoFrom(r.Context()).provider = answered
 	s.metrics.AddTokens(answered, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
-	s.settleOrAbort(r.Context(), res, &resp.Usage, req.Model, answered)
+	s.settleOrAbort(r.Context(), reservation, &resp.Usage, billedModel(req.Model, resp.Model), answered)
 
 	// Stored after settling, so a cached answer carries the cost of the
 	// call that produced it and a later hit can report what it avoided.
@@ -179,10 +179,10 @@ type recvResult struct {
 	err   error
 }
 
-func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, res *budget.Reservation, cacheRes cache.Result) {
+func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov providers.Provider, req *providers.ChatRequest, reservation *budget.Reservation, cacheRes cache.Result) {
 	flusher := flusherFor(w)
 	if flusher == nil {
-		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
+		s.settleOrAbort(r.Context(), reservation, nil, req.Model, prov.Name())
 		writeErrorJSON(w, http.StatusInternalServerError,
 			"streaming is not supported by this server", errTypeAPI, "streaming_unsupported")
 		return
@@ -208,7 +208,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 
 	reader, err := prov.ChatStream(ctx, req)
 	if err != nil {
-		s.settleOrAbort(r.Context(), res, nil, req.Model, prov.Name())
+		s.settleOrAbort(r.Context(), reservation, nil, req.Model, prov.Name())
 		if headerTimedOut.Load() {
 			err = &providers.ProviderError{
 				Provider: prov.Name(),
@@ -244,20 +244,21 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 
 	info := logInfoFrom(r.Context())
 	answered := answeringProvider(prov.Name(), providerOfStream(reader))
+	billed := billedModel(req.Model, modelOfStream(reader))
 	info.provider = answered
 	rc := http.NewResponseController(w)
 	firstData := true
 
-	// Providers differ on how often they report usage: some send it once
-	// at the end, some repeat cumulative totals on every chunk. Keeping
-	// only the last report and recording it at stream end is correct for
-	// both, where summing would multiply the count.
 	// Frames are collected so a completed stream can be replayed later.
 	// Only a stream that finished cleanly is stored: see the [DONE]
 	// branch below.
 	var recorder streamRecorder
 	var completed bool
 
+	// Providers differ on how often they report usage: some send it once
+	// at the end, some repeat cumulative totals on every chunk. Keeping
+	// only the last report and recording it at stream end is correct for
+	// both, where summing would multiply the count.
 	var lastUsage *providers.Usage
 	defer func() {
 		if lastUsage != nil {
@@ -276,22 +277,22 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		// billable evidence, so the claim goes back rather than being
 		// settled at a number nobody measured. Settling on the estimate
 		// instead would bill a guess.
-		s.settleOrAbort(context.WithoutCancel(r.Context()), res, lastUsage, req.Model, answered)
+		s.settleOrAbort(context.WithoutCancel(r.Context()), reservation, lastUsage, billed, answered)
 	}()
 
 	for {
 		select {
-		case res := <-results:
-			if res.err != nil {
+		case recv := <-results:
+			if recv.err != nil {
 				// Only a stream the upstream actually finished may be
 				// remembered. Storing a truncated one would replay a
 				// partial answer forever as though it were whole.
-				completed = errors.Is(res.err, io.EOF)
-				s.finishStream(w, flusher, answered, res.err)
+				completed = errors.Is(recv.err, io.EOF)
+				s.finishStream(w, flusher, answered, recv.err)
 				return
 			}
-			if res.chunk.Usage != nil {
-				lastUsage = res.chunk.Usage
+			if recv.chunk.Usage != nil {
+				lastUsage = recv.chunk.Usage
 			}
 
 			// A stalled client must not pin this goroutine and its
@@ -301,7 +302,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 				_ = rc.SetWriteDeadline(time.Now().Add(idle))
 			}
 
-			if res.chunk.Keepalive {
+			if recv.chunk.Keepalive {
 				// Upstream is alive but still working. Reset the idle
 				// budget and keep the client connection warm.
 				if _, err := io.WriteString(w, sseKeepaliveFrame); err != nil {
@@ -314,10 +315,10 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 						s.metrics.ObserveTTFT(answered, time.Since(info.start).Seconds())
 					}
 				}
-				if err := writeSSEFrame(w, res.chunk.Data); err != nil {
+				if err := writeSSEFrame(w, recv.chunk.Data); err != nil {
 					return
 				}
-				recorder.add(res.chunk.Data)
+				recorder.add(recv.chunk.Data)
 			}
 			flusher.Flush()
 			if idleTimer != nil {

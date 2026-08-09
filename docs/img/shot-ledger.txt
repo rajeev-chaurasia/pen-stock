@@ -1,0 +1,26 @@
+$ # every settled request appends an auditable row
+$ tail -1 penstock-ledger.jsonl
+{"timestamp":"2026-08-08T18:56:48.3846944-07:00",
+   "tenant":"demo",
+   "provider_kind":"groq",
+   "model":"llama-3.3-70b-versatile",
+   "prompt_tokens":43,
+   "completion_tokens":60,
+   "usd":0.00007277000000000001,
+   "price_version":1,
+   "cache_hit":false,
+   "request_id":"1"}
+
+$ # the running totals the gateway enforces against
+$ curl -s localhost:9090/admin/tenants/demo
+{"name":"demo",
+  "limits":{"requests_per_minute":60,
+  "tokens_per_minute":0,
+  "daily_usd":1,
+  "monthly_usd":0,
+  "fail_closed":true},
+  "daily_spent_usd":0.00007277000000000001,
+  "monthly_spent_usd":0.00007277000000000001,
+  "committed_usd":0,
+  "daily_remaining_usd":0.99992723,
+  "monthly_remaining_usd":null}

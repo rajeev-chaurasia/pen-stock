@@ -52,9 +52,11 @@ type EstimatorOptions struct {
 // estimator predicts consumption from an OpenAI style chat body. It holds
 // nothing mutable, so one instance serves every request.
 type estimator struct {
-	table  *pricing.Table
-	kindOf func(model string) string
-	opts   EstimatorOptions
+	table *pricing.Table
+	// resolve maps a routed model to the vendor kind and upstream model
+	// that will be billed for it.
+	resolve func(model string) (kind, upstream string)
+	opts    EstimatorOptions
 }
 
 // NewEstimator builds an Estimator over an OpenAI style request body.
@@ -63,11 +65,11 @@ type estimator struct {
 // keyed by. Either it or table may be nil, in which case estimates carry
 // tokens and zero USD, so token limits keep working with no price list
 // configured.
-func NewEstimator(table *pricing.Table, kindOf func(model string) string, opts EstimatorOptions) Estimator {
+func NewEstimator(table *pricing.Table, resolve func(model string) (kind, upstream string), opts EstimatorOptions) Estimator {
 	if opts.DefaultCompletionTokens <= 0 {
 		opts.DefaultCompletionTokens = fallbackCompletionTokens
 	}
-	return &estimator{table: table, kindOf: kindOf, opts: opts}
+	return &estimator{table: table, resolve: resolve, opts: opts}
 }
 
 // Estimate predicts what one request will consume. It never fails: a body
@@ -202,10 +204,21 @@ func textOf(content json.RawMessage) string {
 // on it. A missing price is never guessed at: a guessed figure would be
 // reserved, settled, and reported as if it were money.
 func (e *estimator) usd(model string, est Estimate) float64 {
-	if e.table == nil || e.kindOf == nil {
+	if e.table == nil || e.resolve == nil {
 		return 0
 	}
-	cost, ok := e.table.Cost(e.kindOf(model), model, providers.Usage{
+	// The routed name is resolved to the vendor and model that will
+	// actually be billed. Pricing the routed label instead finds nothing
+	// whenever a route carries an alias, and an unpriced estimate
+	// reserves nothing, which quietly disables the USD cap.
+	kind, upstream := e.resolve(model)
+	if upstream != "" {
+		model = upstream
+	}
+	if kind == "" {
+		return 0
+	}
+	cost, ok := e.table.Cost(kind, model, providers.Usage{
 		PromptTokens:     est.PromptTokens,
 		CompletionTokens: est.CompletionTokens,
 	})

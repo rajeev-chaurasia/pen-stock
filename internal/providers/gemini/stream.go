@@ -239,7 +239,7 @@ func (r *streamReader) nextEvent() (event, error) {
 				data = append(data, value)
 				haveData = true
 			default:
-				// event:, id:, retry: and unknown fields carry nothing we need
+				// event:, id:, retry: and unknown fields carry nothing we need.
 			}
 		}
 		if err != nil {
@@ -304,7 +304,7 @@ func (r *streamReader) recvError(err error, userClosed bool) error {
 			Err:      err,
 		}
 	case userClosed:
-		// the read failed because Close tore down the body on purpose
+		// The read failed because Close tore down the body on purpose.
 		return providers.ErrStreamTruncated
 	default:
 		return &providers.ProviderError{

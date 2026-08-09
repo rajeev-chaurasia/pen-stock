@@ -1,9 +1,6 @@
 package budget
 
-// This file is the contract for the per tenant budget enforcer, written
-// before the enforcer exists. Until NewEnforcer and *MemEnforcer land the
-// package does not build, and "undefined: NewEnforcer" is the expected
-// state.
+// This file is the contract for the per tenant budget enforcer.
 //
 // The rules come from types.go, which is frozen. Its package doc states
 // the overshoot bound as a documented property rather than an aspiration,
@@ -18,9 +15,8 @@ package budget
 // test is deliberately written so that either passes, so a failure here
 // always means a real disagreement about money.
 //
-// Every helper in this file carries a budget prefix, since other agents
-// add files to this package and a bare newClock or fakeClock would
-// collide.
+// Every helper in this file carries a budget prefix. The package has
+// several test files and a bare newClock or fakeClock would collide.
 
 import (
 	"context"

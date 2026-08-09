@@ -49,7 +49,34 @@ func (m *modelRewriter) ChatStream(ctx context.Context, req *ChatRequest) (Strea
 	if err != nil {
 		return nil, err
 	}
-	return m.inner.ChatStream(ctx, rewritten)
+	reader, err := m.inner.ChatStream(ctx, rewritten)
+	if err != nil {
+		return nil, err
+	}
+	// The caller prices what it was billed for, and the provider billed
+	// for the model it was actually asked for rather than the routed
+	// alias. Without this a streamed request through a renamed route
+	// prices as an unknown model, which reads as free.
+	return &renamedStream{StreamReader: reader, model: m.model}, nil
+}
+
+// renamedStream carries the upstream model alongside the stream so the
+// request path can price it.
+type renamedStream struct {
+	StreamReader
+	model string
+}
+
+// AnsweringModel names the model the upstream actually served.
+func (r *renamedStream) AnsweringModel() string { return r.model }
+
+// AnsweringProvider forwards the inner reader's answer when it has one,
+// so wrapping for the model does not hide who served the request.
+func (r *renamedStream) AnsweringProvider() string {
+	if a, ok := r.StreamReader.(interface{ AnsweringProvider() string }); ok {
+		return a.AnsweringProvider()
+	}
+	return ""
 }
 
 // rewrite copies the request with the upstream's model name in both the

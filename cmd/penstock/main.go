@@ -87,7 +87,7 @@ func run() error {
 		return err
 	}
 
-	accounting, err := buildAccounting(cfg, modelKinds(cfg), log)
+	accounting, err := buildAccounting(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 // when no tenant declares a limit worth enforcing. A gateway without
 // budgeting must still serve, so nil here means metering is off rather
 // than being an error.
-func buildAccounting(cfg *config.Config, kindOf func(string) string, log *slog.Logger) (*accounting, error) {
+func buildAccounting(cfg *config.Config, log *slog.Logger) (*accounting, error) {
 	limits := make(map[budget.TenantID]budget.Limits, len(cfg.Auth.Tenants))
 	for _, t := range cfg.Auth.Tenants {
 		limits[budget.TenantID(t.Name)] = budget.Limits{
@@ -233,10 +233,10 @@ func buildAccounting(cfg *config.Config, kindOf func(string) string, log *slog.L
 	enforcer := budget.NewEnforcer(limits, nil)
 	return &accounting{
 		guard: budget.NewGuard(budget.GuardOptions{
-			Estimator: budget.NewEstimator(prices, kindOf, budget.EstimatorOptions{}),
+			Estimator: budget.NewEstimator(prices, routePricing(cfg), budget.EstimatorOptions{}),
 			Enforcer:  enforcer,
 			Prices:    prices,
-			KindOf:    kindOf,
+			KindOf:    providerKinds(cfg),
 			Ledger:    ledger,
 			// A ledger that cannot be written is a silent hole in the
 			// audit trail, so it is reported rather than assumed empty.
@@ -302,24 +302,49 @@ func (a *accounting) adminHandler() http.Handler {
 	return admin.New(a.enforcer, a.limits).Handler()
 }
 
-// modelKinds maps each routed model to the kind of the first provider
-// serving it, which is what the price table is keyed by. A fallback
-// chain can span vendors, so this is the price the route is expected to
-// be billed at rather than a guarantee.
-func modelKinds(cfg *config.Config) func(string) string {
-	kindOf := make(map[string]string, len(cfg.Routes))
-	byName := make(map[string]config.ProviderKind, len(cfg.Providers))
+// providerKinds maps a provider name to its vendor kind. Settlement
+// prices through this, because by then the gateway knows exactly which
+// provider answered, and the price table is keyed by vendor rather than
+// by whatever the operator named the route.
+func providerKinds(cfg *config.Config) func(string) string {
+	kindOf := make(map[string]string, len(cfg.Providers))
 	for _, p := range cfg.Providers {
-		byName[p.Name] = p.Kind
+		kindOf[p.Name] = string(p.Kind)
+	}
+	return func(provider string) string { return kindOf[provider] }
+}
+
+// routePricing resolves a routed model to the vendor and upstream model
+// an estimate should be priced against.
+//
+// It answers for the first provider in the chain, which is a prediction
+// rather than a fact: a chain can fail over to another vendor at a
+// different price. Settlement corrects it with what actually happened,
+// so the only cost of being wrong here is a reservation that was a
+// little too large or too small for one request.
+func routePricing(cfg *config.Config) func(string) (string, string) {
+	type priced struct{ kind, upstream string }
+	byModel := make(map[string]priced, len(cfg.Routes))
+
+	kindOf := make(map[string]config.ProviderKind, len(cfg.Providers))
+	for _, p := range cfg.Providers {
+		kindOf[p.Name] = p.Kind
 	}
 	for _, route := range cfg.Routes {
 		chain := route.Chain()
 		if len(chain) == 0 {
 			continue
 		}
-		kindOf[route.Model] = string(byName[chain[0]])
+		first := chain[0]
+		byModel[route.Model] = priced{
+			kind:     string(kindOf[first]),
+			upstream: route.UpstreamModel(first),
+		}
 	}
-	return func(model string) string { return kindOf[model] }
+	return func(model string) (string, string) {
+		p := byModel[model]
+		return p.kind, p.upstream
+	}
 }
 
 // buildCache assembles the cache tiers from config, or returns nil when

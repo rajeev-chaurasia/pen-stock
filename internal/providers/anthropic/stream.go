@@ -324,7 +324,7 @@ func (r *streamReader) nextEvent() (sseEvent, error) {
 			case strings.HasPrefix(trimmed, sseEventPrefix):
 				ev.name = fieldValue(trimmed, sseEventPrefix)
 			default:
-				// id:, retry: and unknown fields carry nothing we need
+				// id:, retry: and unknown fields carry nothing we need.
 			}
 		}
 		if err != nil {

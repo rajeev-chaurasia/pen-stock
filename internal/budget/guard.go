@@ -20,8 +20,10 @@ type Guard struct {
 	estimator Estimator
 	enforcer  Enforcer
 	prices    *pricing.Table
-	kindOf    func(model string) string
-	ledger    pricing.Ledger
+	// kindOf maps a provider name to its vendor kind, which is what the
+	// price table is keyed by.
+	kindOf func(provider string) string
+	ledger pricing.Ledger
 	// onLedgerError is called when an audit row cannot be written, so a
 	// silently unwritable ledger is noticed rather than assumed empty.
 	onLedgerError func(error)
@@ -75,7 +77,7 @@ func (g *Guard) Settle(ctx context.Context, r *Reservation, usage providers.Usag
 	if g == nil || r == nil || g.enforcer == nil {
 		return 0
 	}
-	usd := g.Price(model, usage)
+	usd := g.Price(provider, model, usage)
 	_ = g.enforcer.Settle(ctx, r, usage, usd)
 	g.record(r, usage, usd, model, provider)
 	return usd
@@ -117,13 +119,19 @@ func (g *Guard) Abort(ctx context.Context, r *Reservation) {
 	_ = g.enforcer.Release(ctx, r)
 }
 
-// Price reports what usage costs for a model, or zero when the model
-// carries no known price. Zero here means unpriced, never free.
-func (g *Guard) Price(model string, usage providers.Usage) float64 {
+// Price reports what usage costs, or zero when the pair carries no known
+// price. Zero here means unpriced, never free.
+//
+// The kind comes from the provider that answered rather than from the
+// model name, because a routed model is a label the operator chose and
+// the price table is keyed by the vendor that billed for it. Looking the
+// kind up by model works only while the two happen to match, and stops
+// the moment a route is given an alias.
+func (g *Guard) Price(provider, model string, usage providers.Usage) float64 {
 	if g == nil || g.prices == nil || g.kindOf == nil {
 		return 0
 	}
-	cost, ok := g.prices.Cost(g.kindOf(model), model, usage)
+	cost, ok := g.prices.Cost(g.kindOf(provider), model, usage)
 	if !ok {
 		return 0
 	}

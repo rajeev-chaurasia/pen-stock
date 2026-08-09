@@ -123,7 +123,6 @@ func NewServer(cfg config.ServerConfig, routes map[string]providers.Provider, lo
 	return s
 }
 
-// Handler returns the fully wired HTTP handler.
 func (s *Server) Handler() http.Handler { return s.handler }
 
 // RequiresAuth reports whether any client key is configured. Callers use

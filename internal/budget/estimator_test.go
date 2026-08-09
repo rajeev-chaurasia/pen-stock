@@ -333,37 +333,37 @@ func TestEstimateUSD(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		kindOf  func(string) string
+		resolve func(string) (string, string)
 		model   string
 		wantUSD float64
 	}{
 		{
 			name:    "priced model",
-			kindOf:  func(string) string { return "openai" },
+			resolve: func(m string) (string, string) { return "openai", m },
 			model:   "gpt-4o-mini",
 			wantUSD: 6.09e-05, // (6*0.15 + 100*0.60) / 1e6
 		},
 		{
 			name:    "a second kind prices from its own rates",
-			kindOf:  func(string) string { return "anthropic" },
+			resolve: func(m string) (string, string) { return "anthropic", m },
 			model:   "claude-sonnet-4-5",
 			wantUSD: 0.001518, // (6*3 + 100*15) / 1e6
 		},
 		{
 			name:    "free model costs nothing",
-			kindOf:  func(string) string { return "openai_compat" },
+			resolve: func(m string) (string, string) { return "openai_compat", m },
 			model:   "llmsim-small",
 			wantUSD: 0,
 		},
 		{
 			name:    "unpriced model is never guessed at",
-			kindOf:  func(string) string { return "openai" },
+			resolve: func(m string) (string, string) { return "openai", m },
 			model:   "gpt-9-turbo",
 			wantUSD: 0,
 		},
 		{
 			name:    "unknown kind is unpriced too",
-			kindOf:  func(string) string { return "" },
+			resolve: func(m string) (string, string) { return "", m },
 			model:   "gpt-4o-mini",
 			wantUSD: 0,
 		},
@@ -371,7 +371,7 @@ func TestEstimateUSD(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			est := NewEstimator(testTable(), tt.kindOf, testOpts())
+			est := NewEstimator(testTable(), tt.resolve, testOpts())
 			got := est.Estimate(tt.model, body)
 
 			if math.Abs(got.USD-tt.wantUSD) > usdEpsilon {
@@ -390,22 +390,22 @@ func TestEstimateUSD(t *testing.T) {
 }
 
 func TestEstimateWithoutPricing(t *testing.T) {
-	kindOf := func(string) string { return "openai" }
+	resolve := func(m string) (string, string) { return "openai", m }
 
 	tests := []struct {
-		name   string
-		table  *pricing.Table
-		kindOf func(string) string
+		name    string
+		table   *pricing.Table
+		resolve func(string) (string, string)
 	}{
-		{name: "nil table and nil kindOf", table: nil, kindOf: nil},
-		{name: "nil table with a kindOf", table: nil, kindOf: kindOf},
-		{name: "table with a nil kindOf", table: testTable(), kindOf: nil},
+		{name: "nil table and nil resolver", table: nil, resolve: nil},
+		{name: "nil table with a resolver", table: nil, resolve: resolve},
+		{name: "table with a nil resolver", table: testTable(), resolve: nil},
 	}
 
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}],"max_tokens":100}`)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			est := NewEstimator(tt.table, tt.kindOf, testOpts())
+			est := NewEstimator(tt.table, tt.resolve, testOpts())
 			got := est.Estimate("gpt-4o-mini", body)
 
 			if got.USD != 0 {

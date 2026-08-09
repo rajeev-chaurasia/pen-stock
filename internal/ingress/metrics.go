@@ -41,6 +41,33 @@ func answeringProvider(routeLabel, answered string) string {
 	return routeLabel
 }
 
+// streamModeller is implemented by a reader that knows which model the
+// upstream actually served, which differs from the routed name whenever
+// a route renames per provider.
+type streamModeller interface {
+	AnsweringModel() string
+}
+
+// modelOfStream reports the upstream model behind a reader, or empty.
+func modelOfStream(r any) string {
+	if m, ok := r.(streamModeller); ok {
+		return m.AnsweringModel()
+	}
+	return ""
+}
+
+// billedModel is the name to price against. A route may present one
+// name to callers and ask each provider for a different one, and the
+// price table is keyed by what the provider was actually asked for.
+// Pricing the alias instead finds nothing, and an unpriced model bills
+// as zero, which is indistinguishable from free.
+func billedModel(routeModel, upstreamModel string) string {
+	if upstreamModel != "" {
+		return upstreamModel
+	}
+	return routeModel
+}
+
 type noopSink struct{}
 
 func (noopSink) ObserveRequest(string, string, string, float64, bool) {}

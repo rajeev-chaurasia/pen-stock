@@ -1,4 +1,14 @@
-// Package obs provides logging, metrics, and tracing for penstock.
+// Package obs is the gateway's logging, metrics, and tracing.
+//
+// Instruments live on a private registry rather than the Prometheus
+// default one, so two instances in a process cannot collide on a
+// duplicate registration and each test can build its own set. Tracing
+// stays a no-op until an OTLP endpoint is configured, so a default
+// deployment opens no connection it was not asked for.
+//
+// The dependency points one way. obs imports the Prometheus and
+// OpenTelemetry libraries and satisfies ingress.MetricsSink
+// structurally, so the request path never imports either.
 package obs
 
 import (

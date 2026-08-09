@@ -1,0 +1,11 @@
+$ export KEY=...   # the tenant key, budgets and limits attach to it
+
+$ curl -s -w "\n  upstream call: %{time_total}s\n" localhost:8080/v1/chat/completions \
+     -H "Authorization: Bearer $KEY" -d "$Q" | tail -3
+"content":"The longest river in Africa is the Nile River, which stretches approximately 6,6
+  upstream call: 0.213882s
+
+$ # ask the identical question again
+$ curl -s -D- -w "  cached:        %{time_total}s\n" ... | grep -iE "cache|cached:"
+X-Penstock-Cache: hit-exact
+  cached:        0.019797s

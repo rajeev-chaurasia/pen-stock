@@ -1,8 +1,6 @@
 package router
 
-// This file is the contract for the router orchestrator, written before
-// the orchestrator exists. Until New and *Router land the package does
-// not build, and "undefined: New" is the expected state.
+// This file is the contract for the router orchestrator.
 //
 // The rules come from policy.go, which is frozen: classDisposition and
 // countsAgainstHealth are the specification, and the tables below carry
@@ -1071,8 +1069,8 @@ func TestRouterMidStreamFailureNeverFailsOver(t *testing.T) {
 	// Once a reader has been handed back, bytes may already be on the
 	// wire. Starting a second provider now would splice two different
 	// completions into one answer, so the failure is surfaced instead.
-	// Note that upstream_unavailable is a retry class for connects: after
-	// the stream opens it must stop being one.
+	// upstream_unavailable is a retry class for connects: once the stream
+	// is open it must stop being one.
 	tests := []struct {
 		name string
 		err  error

@@ -54,7 +54,6 @@ type Clock interface {
 
 type realClock struct{}
 
-// Now reports the current time.
 func (realClock) Now() time.Time { return time.Now() }
 
 // Options configures one routed model.
