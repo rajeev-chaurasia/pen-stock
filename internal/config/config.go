@@ -295,6 +295,16 @@ func (c *Config) validateAuth(add func(format string, args ...any)) {
 			}
 		}
 	}
+
+	// An anonymous key carries no tenant, so there is no account to
+	// reserve against once accounting is switched on. Serving it anyway
+	// would hand out one uncapped key beside the capped ones, and the
+	// budgets would look enforced while a way around them stayed open.
+	// Refusing at startup is the only reading that cannot be missed.
+	if len(c.Auth.ClientKeys) > 0 && len(c.Auth.Tenants) > 0 {
+		add("auth: client_keys and tenants are both set; an anonymous key has no account to bill, " +
+			"so move each client key under a tenant or drop the tenants to run without budgets")
+	}
 }
 
 // Validate checks the whole config and reports every problem found, joined

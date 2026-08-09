@@ -83,7 +83,7 @@ Both open the gateway. Only one of them has an identity.
 
 | Option | Type | Default | If omitted |
 |---|---|---|---|
-| `client_keys` | list of strings | `[]` | No anonymous keys. Combined with no tenants, this triggers the loopback fail safe. |
+| `client_keys` | list of strings | `[]` | No anonymous keys. Combined with no tenants, this triggers the loopback fail safe. Cannot be combined with `tenants`. |
 
 Each key must be at least 16 characters. Generate them with something like
 `openssl rand -hex 32`.
@@ -92,6 +92,13 @@ Client keys are anonymous. They authenticate, but spend is attributed to
 nobody and no limit applies to them. They are the right choice for a
 single-operator local deployment and the wrong choice for anything you need
 to bill.
+
+The two kinds do not mix. Setting `client_keys` and `tenants` together
+fails the load, because an anonymous key names no account to reserve
+against: it would run beside the budgeted keys with no cap on it at all,
+and the budgets would read as enforced while a way around them stayed
+open. Pick one. Either move every client key under a tenant, or drop the
+tenants and run without budgets.
 
 ### `auth.tenants`
 

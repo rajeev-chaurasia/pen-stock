@@ -124,6 +124,28 @@ func TestValidateTenants(t *testing.T) {
 			wantContains: []string{`auth: tenant "demo": keys[0] also appears in auth.client_keys`},
 		},
 		{
+			// An anonymous key authenticates but names no tenant, so once
+			// accounting is on there is no account to reserve against. The
+			// gateway used to accept this and answer every anonymous call
+			// with a 500, blaming itself for a config it had agreed to.
+			name: "anonymous client keys alongside tenants",
+			mutate: func(c *Config) {
+				c.Auth.ClientKeys = []string{key("anon")}
+				c.Auth.Tenants = oneTenant()
+			},
+			wantContains: []string{
+				"auth: client_keys and tenants are both set",
+				"move each client key under a tenant",
+			},
+		},
+		{
+			name: "client keys alone stay valid",
+			mutate: func(c *Config) {
+				c.Auth.ClientKeys = []string{key("anon")}
+				c.Auth.Tenants = nil
+			},
+		},
+		{
 			name: "negative requests_per_minute",
 			mutate: func(c *Config) {
 				c.Auth.Tenants = oneTenant()

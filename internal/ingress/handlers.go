@@ -50,8 +50,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
+			// The figure comes from the constant rather than from prose, so
+			// a change to the cap cannot leave the client reading a number
+			// the gateway stopped enforcing.
 			writeErrorJSON(w, http.StatusRequestEntityTooLarge,
-				"request body exceeds the 10MB limit", errTypeInvalidRequest, "request_too_large")
+				fmt.Sprintf("request body exceeds the %d MiB limit", maxBodyBytes>>20),
+				errTypeInvalidRequest, "request_too_large")
 			return
 		}
 		writeErrorJSON(w, http.StatusBadRequest,

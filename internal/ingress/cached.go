@@ -34,7 +34,7 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, res cache.R
 	s.metrics.AddTokens(entry.Provider, entry.Usage.PromptTokens, entry.Usage.CompletionTokens)
 
 	if info.stream {
-		return s.replayStream(w, entry)
+		return s.replayStream(w, res)
 	}
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", headerNoSniff)
@@ -65,7 +65,8 @@ func cacheStatusOf(res cache.Result) string {
 // stream. The frames are replayed as they arrived, then terminated the
 // same way a live stream is, so a client cannot tell the difference
 // beyond the header and the speed.
-func (s *Server) replayStream(w http.ResponseWriter, entry *cache.Entry) bool {
+func (s *Server) replayStream(w http.ResponseWriter, res cache.Result) bool {
+	entry := res.Entry
 	flusher := flusherFor(w)
 	if flusher == nil {
 		return false
@@ -82,7 +83,7 @@ func (s *Server) replayStream(w http.ResponseWriter, entry *cache.Entry) bool {
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Connection", "keep-alive")
 	h.Set("X-Content-Type-Options", headerNoSniff)
-	h.Set(headerCacheStatus, cacheStatusExact)
+	h.Set(headerCacheStatus, cacheStatusOf(res))
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
