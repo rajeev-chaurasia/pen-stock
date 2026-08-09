@@ -94,14 +94,7 @@ func run() error {
 	defer accounting.shutdown()
 
 	metrics := obs.NewMetrics()
-	gateway := ingress.NewServer(cfg.Server, routes, log,
-		ingress.WithCache(buildCache(cfg, metrics, log)),
-		ingress.WithAccounting(accounting.requestPath()),
-		ingress.WithMetrics(metrics),
-		ingress.WithClientKeys(cfg.Auth.ClientKeys),
-		ingress.WithTenantKeys(tenantKeys(cfg)),
-		ingress.WithInflightLimit(cfg.Server.MaxInflight),
-	)
+	gateway := buildGateway(cfg, routes, accounting, metrics, log)
 
 	srv := gatewayServer(cfg, gateway)
 	adminSrv := adminServer(cfg, metrics, accounting)
@@ -120,6 +113,23 @@ func run() error {
 	}
 
 	return serve(ctx, log, srv, adminSrv)
+}
+
+// buildGateway assembles the ingress from everything already built.
+//
+// It is a function rather than a block inside run so the boot test can
+// exercise the same option list the binary uses. A test that rebuilt the
+// list itself would keep passing when an option was added here and not
+// there, which is the one failure a wiring test exists to catch.
+func buildGateway(cfg *config.Config, routes map[string]providers.Provider, accounting *accounting, metrics *obs.Metrics, log *slog.Logger) *ingress.Server {
+	return ingress.NewServer(cfg.Server, routes, log,
+		ingress.WithCache(buildCache(cfg, metrics, log)),
+		ingress.WithAccounting(accounting.requestPath()),
+		ingress.WithMetrics(metrics),
+		ingress.WithClientKeys(cfg.Auth.ClientKeys),
+		ingress.WithTenantKeys(tenantKeys(cfg)),
+		ingress.WithInflightLimit(cfg.Server.MaxInflight),
+	)
 }
 
 // gatewayServer is the listener callers reach.
