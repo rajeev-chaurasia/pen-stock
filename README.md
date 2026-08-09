@@ -6,14 +6,40 @@ chains, per-provider cost accounting, and benchmarks you can reproduce.
 A penstock is the pressure pipe that feeds a hydro turbine. It meters,
 controls, and survives high-pressure flow. Same job here.
 
-## Security status
+## Where the trust boundary is
 
-Bearer authentication, per-tenant rate limits and per-tenant spend caps
-all work, the loader refuses to bind anything but loopback with no keys
-configured, and spend windows survive a restart when
-`accounting.store_path` is set. What is still missing before this
-belongs on a public address: there is no TLS, no key rotation, and no
-multi-node story. Run it behind something that provides those.
+Penstock assumes it sits on a private network behind something that
+terminates TLS: a load balancer, an ingress controller, a service mesh
+sidecar, or Cloudflare. That is not a gap waiting to be filled, it is
+where the boundary is drawn, and the gateway is built to that assumption
+rather than apologising for it.
+
+**TLS is deliberately not in the binary.** Terminating it here would
+duplicate what every deployment already has in front of it, and duplicate
+it worse: no OCSP stapling, no automated renewal, no shared session
+cache, and one more place to get a cipher suite wrong. The gateway would
+also have to be redeployed to rotate a certificate. A gateway that
+terminates its own TLS is not more production ready, it is a gateway that
+has taken on a job the layer above it does better.
+
+What the gateway does own, and does enforce:
+
+- Bearer authentication, with per-tenant rate limits and spend caps.
+- A loader that refuses to bind anything but loopback when no keys are
+  configured, so an unauthenticated gateway cannot be started by
+  accident on a public address.
+- Spend windows that survive a restart, when `accounting.store_path` is
+  set.
+- An admin listener separate from the caller listener, defaulting to
+  loopback, because token spend and latency profiles are operator data.
+- Upstream errors relayed without leaking bearer tokens, provider key
+  prefixes, or internal addresses that upstream proxies like to name.
+
+What it genuinely does not have, and what that costs you: **no key
+rotation**, so changing a client key means a config change and a
+restart; and **no multi-node story**, because accounting is one file
+opened by one process. Running two instances against one budget is not
+supported and nothing will warn you.
 
 Free provider tiers generally train on submitted prompts, so production
 or otherwise sensitive data does not belong here.
@@ -336,16 +362,25 @@ is committed beside the summaries in [bench/results/](bench/results/).
 ## Status
 
 Ingress and streaming, the provider adapters, routing and fallback,
-per-tenant cost control, and caching are done and exercised against
-real provider APIs. The benchmark campaign is complete on both
-platforms: `cmd/calibrate` records real provider latency into the
-profiles llmsim replays, the k6 harness lives in [bench/](bench/), and
-every number quoted above is reproducible from it.
+per-tenant cost control with durable spend windows, and caching are done
+and exercised against real provider APIs. The benchmark campaign is
+complete on both platforms: `cmd/calibrate` records real provider
+latency into the profiles llmsim replays, the k6 harness lives in
+[bench/](bench/), and every number quoted above is reproducible from it.
 
-What is deliberately not here: TLS, key rotation, and any multi-node
-story. Accounting is one file opened by one process, which closes the
-restart gap without pretending to close the distributed one. See
-[docs/architecture.md](docs/architecture.md) for where those edges are.
+The boundaries are in [where the trust boundary is](#where-the-trust-boundary-is)
+above rather than repeated here: TLS belongs to the layer in front, and
+key rotation and multi-node accounting are genuinely absent.
+
+The thing worth knowing about how this was built is that most of its
+bugs were found by running it against real provider APIs rather than by
+testing it. A stream reported as finished when it had been cut off. Cost
+attributed to the route's label instead of the provider that answered.
+Every ledger row reading $0.00 while real money was being spent, because
+pricing looked up the routed name in a table keyed by the real one, so a
+USD cap silently did not exist. Cache events counted twice, found by
+reading a screenshot of a metric I had just verified was working. None
+of those were reachable from a fixture.
 
 ## Documentation
 

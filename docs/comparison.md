@@ -579,7 +579,7 @@ Read back from `bench/results/compare-20260807T001638Z.meta.json`.
 | CPU | Intel(R) Core(TM) Ultra 7 265H |
 | Logical CPUs | 16 |
 | Memory | 63.5 GiB |
-| OS | Microsoft Windows 11 Enterprise 10.0.26200 |
+| OS | Windows 11 10.0.26200 |
 
 k6, three llmsim instances, Penstock and LiteLLM all ran on this one
 machine and competed for these cores.
