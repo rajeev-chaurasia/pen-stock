@@ -167,11 +167,28 @@ func run() error {
 // buildRoutes turns each configured route into a provider, wrapping the
 // chain in a router so a single-provider route and a fallback chain
 // behave identically from the ingress side.
+// routerOptions carries the configured retry and breaker tuning into
+// the router. A zero field stays zero here rather than being filled in,
+// because the router's own withDefaults owns the defaults and two
+// places deciding them is how they drift apart.
+func routerOptions(cfg *config.Config) router.Options {
+	r := cfg.Router
+	return router.Options{
+		MaxAttempts:      r.MaxAttempts,
+		RetryBaseDelay:   time.Duration(r.RetryBaseDelayMS) * time.Millisecond,
+		MaxRetryDelay:    time.Duration(r.MaxRetryDelayMS) * time.Millisecond,
+		BreakerThreshold: r.BreakerThreshold,
+		BreakerCooldown:  time.Duration(r.BreakerCooldownSeconds) * time.Second,
+	}
+}
+
 func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[string]providers.Provider, error) {
+	opts := routerOptions(cfg)
+
 	// Health is shared across routes on purpose: a provider that is rate
 	// limited or broken is equally unusable for every model it serves,
 	// and learning that once is the point.
-	health := router.NewHealth(router.Options{}, nil)
+	health := router.NewHealth(opts, nil)
 
 	routes := make(map[string]providers.Provider, len(cfg.Routes))
 	for _, route := range cfg.Routes {
@@ -193,7 +210,7 @@ func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[s
 		if err != nil {
 			return nil, fmt.Errorf("route %q: %w", route.Model, err)
 		}
-		routed, err := router.New(route.Model, chain, health, selector, router.Options{}, nil)
+		routed, err := router.New(route.Model, chain, health, selector, opts, nil)
 		if err != nil {
 			return nil, err
 		}

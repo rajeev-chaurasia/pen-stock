@@ -40,7 +40,39 @@ type Config struct {
 	Cache      CacheConfig      `yaml:"cache"`
 	Providers  []ProviderConfig `yaml:"providers"`
 	Routes     []RouteConfig    `yaml:"routes"`
+	Router     RouterConfig     `yaml:"router"`
 	Telemetry  TelemetryConfig  `yaml:"telemetry"`
+}
+
+// RouterConfig tunes how hard a route tries before it gives up, and how
+// long a provider that keeps failing is left alone.
+//
+// These are global rather than per route because provider health is
+// shared: a provider that is down is equally down for every model it
+// serves, and that is the whole reason one failing route teaches the
+// others. Per route breaker settings would mean several disagreeing
+// opinions about the same provider.
+//
+// Every field takes a documented default when left at zero, so an
+// operator who sets none of them gets the same behaviour as before this
+// block existed.
+type RouterConfig struct {
+	// MaxAttempts bounds total upstream calls for one client request,
+	// across every provider in the chain. Without a ceiling a long chain
+	// turns one client request into a storm.
+	MaxAttempts int `yaml:"max_attempts"`
+	// RetryBaseDelayMS is the first backoff step. Later steps grow
+	// exponentially with full jitter.
+	RetryBaseDelayMS int `yaml:"retry_base_delay_ms"`
+	// MaxRetryDelayMS caps a single backoff so a slow chain cannot
+	// outlive the caller's patience.
+	MaxRetryDelayMS int `yaml:"max_retry_delay_ms"`
+	// BreakerThreshold is how many failures in a row open the breaker on
+	// a provider.
+	BreakerThreshold int `yaml:"breaker_threshold"`
+	// BreakerCooldownSeconds is how long an open breaker stays open
+	// before one probe is allowed through.
+	BreakerCooldownSeconds int `yaml:"breaker_cooldown_seconds"`
 }
 
 // CacheConfig controls answering a request from a previous one.

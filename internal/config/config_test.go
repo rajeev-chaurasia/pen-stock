@@ -334,6 +334,14 @@ func TestLoadExampleConfig(t *testing.T) {
 	if got, want := cfg.Providers[0].APIKey, "gsk-example"; got != want {
 		t.Errorf("groq APIKey = %q, want %q", got, want)
 	}
+
+	// The example documents the router defaults by writing them out, so
+	// a field renamed in the struct and not in the file would silently
+	// stop parsing and leave the example advertising a knob that does
+	// nothing.
+	if cfg.Router.MaxAttempts == 0 || cfg.Router.BreakerThreshold == 0 || cfg.Router.BreakerCooldownSeconds == 0 {
+		t.Errorf("router block did not parse from the example: %+v", cfg.Router)
+	}
 }
 
 func TestExpandAPIKeyEmbedded(t *testing.T) {

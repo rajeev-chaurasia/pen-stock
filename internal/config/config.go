@@ -41,6 +41,15 @@ const MaxTimeoutMS int = 3600000
 // MinClientKeyLength is the shortest client key worth calling a secret.
 const MinClientKeyLength = 16
 
+// MaxRouterAttempts caps router.max_attempts. Each attempt is a real
+// upstream call, so a large budget turns one client request into a
+// storm against providers that are already struggling.
+const MaxRouterAttempts = 10
+
+// MaxBreakerCooldownSeconds caps how long a provider may be parked. An
+// hour of cooldown on a chain of two is an outage with extra steps.
+const MaxBreakerCooldownSeconds = 3600
+
 // MinSemanticThreshold is the loosest similarity the loader will accept.
 //
 // Measured against a live embedder, questions with opposite meanings
@@ -232,6 +241,42 @@ func (a AuthConfig) hasKeys() bool {
 // validateAuth reports every problem with the configured keys through
 // add. No message ever contains a key: naming the tenant and the index
 // is enough to fix the file, and error text reaches logs.
+// validateRouter rejects tuning that would misbehave quietly. Zero means
+// "take the default" on every field, so only values an operator typed
+// on purpose are checked.
+func (c *Config) validateRouter(add func(format string, args ...any)) {
+	r := c.Router
+
+	for _, f := range []struct {
+		name  string
+		value int
+	}{
+		{"max_attempts", r.MaxAttempts},
+		{"retry_base_delay_ms", r.RetryBaseDelayMS},
+		{"max_retry_delay_ms", r.MaxRetryDelayMS},
+		{"breaker_threshold", r.BreakerThreshold},
+		{"breaker_cooldown_seconds", r.BreakerCooldownSeconds},
+	} {
+		if f.value < 0 {
+			add("router: %s is %d, must not be negative; omit the field to take the default", f.name, f.value)
+		}
+	}
+
+	if r.MaxAttempts > MaxRouterAttempts {
+		add("router: max_attempts is %d, must be at most %d; each attempt is a real upstream call and a large budget turns one request into a storm", r.MaxAttempts, MaxRouterAttempts)
+	}
+	if r.BreakerCooldownSeconds > MaxBreakerCooldownSeconds {
+		add("router: breaker_cooldown_seconds is %d, must be at most %d (one hour)", r.BreakerCooldownSeconds, MaxBreakerCooldownSeconds)
+	}
+
+	// A first backoff step longer than the cap means the cap is the only
+	// value that ever applies, so the two fields together say something
+	// different from what either says alone.
+	if r.RetryBaseDelayMS > 0 && r.MaxRetryDelayMS > 0 && r.RetryBaseDelayMS > r.MaxRetryDelayMS {
+		add("router: retry_base_delay_ms is %d but max_retry_delay_ms is %d; the first backoff step cannot exceed the cap on every step", r.RetryBaseDelayMS, r.MaxRetryDelayMS)
+	}
+}
+
 func (c *Config) validateAuth(add func(format string, args ...any)) {
 	// An unauthenticated gateway is an open door to a paid API key, so
 	// it may only listen where nobody else can reach it.
@@ -333,6 +378,8 @@ func (c *Config) Validate() error {
 			add("server: %s is %d, must be at most %d (one hour); values are milliseconds", tmo.name, tmo.value, MaxTimeoutMS)
 		}
 	}
+
+	c.validateRouter(add)
 
 	if c.Cache.Enabled {
 		if c.Cache.MaxEntries < 0 {

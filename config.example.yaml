@@ -183,6 +183,24 @@ routes:
   # - model: anthropic/claude-3.5-haiku
   #   provider: openrouter
 
+# How hard a route tries before giving up, and how long a provider that
+# keeps failing is left alone. Global rather than per route, because
+# provider health is shared: a provider that is down is equally down for
+# every model it serves. Every field shown here is its default, so
+# deleting the whole block changes nothing.
+router:
+  # Total upstream calls for one client request, across the whole chain.
+  # Each one is a real call, so this is a storm limit, not a retry wish.
+  max_attempts: 3
+  # First backoff step. Later steps grow exponentially with full jitter.
+  retry_base_delay_ms: 100
+  # Cap on any single backoff, so a slow chain cannot outlive the caller.
+  max_retry_delay_ms: 2000
+  # Consecutive failures that park a provider.
+  breaker_threshold: 5
+  # How long it stays parked before one probe is let through.
+  breaker_cooldown_seconds: 30
+
 telemetry:
   service_name: penstock
   # Leave empty to disable OTLP trace export.

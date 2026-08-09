@@ -262,10 +262,12 @@ chain longer than the attempt budget will not try every member on a single
 bad request, which is the intended trade: a client waiting on a completion
 is better served by one honest failure than by six sequential timeouts.
 
-None of the router's tuning (attempt budget, backoff steps, breaker
-threshold and cooldown) is currently exposed in `config.yaml`. The wiring
-in `cmd/penstock` constructs the router with the package defaults, and
-changing them means changing that call.
+The router's tuning (attempt budget, backoff steps, breaker threshold and
+cooldown) is set under `router` in `config.yaml`. It is global rather
+than per route because health is shared, which is the same reason one
+route learning a provider is broken spares the others. See
+[configuration.md](configuration.md#router) for the fields and their
+bounds. Omitting the block leaves every default in place.
 
 When every provider in a chain is parked, the request fails with
 `no healthy provider is available for this model` rather than hammering

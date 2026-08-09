@@ -1,0 +1,27 @@
+$ # Same binary, same three dead providers, same six requests.
+$ # The only difference is the router block in config.yaml.
+
+$ cat router-tune.yaml
+router:
+  max_attempts: 2
+  breaker_threshold: 2
+  breaker_cooldown_seconds: 60
+
+routes:
+  - model: auto
+    providers: [deadA, deadB, deadC]
+
+$ for i in $(seq 1 6); do curl -s -o /dev/null ... ; done
+$ grep -c "no healthy provider" penstock.log
+3
+
+  tuned:     6 requests, 3 reached upstream, 3 short-circuited
+  defaults:  6 requests, 5 reached upstream, 1 short-circuited
+
+$ # A short-circuited request logs duration_ms 0 and makes no upstream
+$ # call at all, which is the breaker doing its job rather than the
+$ # gateway hammering something it already knows is refusing.
+$ tail -1 penstock.log
+{"level":"ERROR","msg":"upstream failure","provider":"auto",
+ "class":"upstream_unavailable","upstream_status":0,
+ "message":"no healthy provider is available for this model"}

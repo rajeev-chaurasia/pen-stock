@@ -235,6 +235,47 @@ routes:
       cerebras: gpt-oss-120b
 ```
 
+## `router`
+
+How hard a route tries before it gives up, and how long a provider that
+keeps failing is left alone.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `max_attempts` | int | `3` | Three upstream calls per client request, across the whole chain. |
+| `retry_base_delay_ms` | int | `100` | First backoff step. Later steps grow exponentially with full jitter. |
+| `max_retry_delay_ms` | int | `2000` | Cap on any single backoff. |
+| `breaker_threshold` | int | `5` | Consecutive failures that park a provider. |
+| `breaker_cooldown_seconds` | int | `30` | How long it stays parked before one probe is let through. |
+
+These are global, not per route, because provider health is shared. A
+provider that is down is equally down for every model it serves, and
+that is the point: one route learning a provider is broken spares the
+others from finding out the same way. Per route breaker settings would
+mean several disagreeing opinions about the same provider.
+
+`max_attempts` counts calls, not retries, and it counts across the chain
+rather than per provider. A chain of five with a budget of three tries
+three of them and stops. That is deliberate: each attempt is a real
+upstream call, so a generous budget aimed at reliability turns one
+client request into a storm against providers that are already
+struggling.
+
+Rejected at load: any negative value, `max_attempts` above 10,
+`breaker_cooldown_seconds` above 3600, and a `retry_base_delay_ms`
+larger than `max_retry_delay_ms`, since that last pair would make the
+cap the only value that ever applied.
+
+Zero means "take the default" on every field, so a config that omits the
+block behaves exactly as it did before the block existed.
+
+```yaml
+router:
+  max_attempts: 4
+  breaker_threshold: 3
+  breaker_cooldown_seconds: 60
+```
+
 ## `telemetry`
 
 | Option | Type | Default | If omitted |

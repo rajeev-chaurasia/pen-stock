@@ -318,10 +318,9 @@ profiles llmsim replays, the k6 harness lives in [bench/](bench/), and
 every number quoted above is reproducible from it.
 
 What is deliberately not here: tenant state is in memory, so a restart
-forgets every window; there is no TLS, key rotation, or multi-node
-story; and the router's attempt budget, backoff and breaker thresholds
-run on package defaults with no config surface. See
-[docs/architecture.md](docs/architecture.md) for where those edges are.
+forgets every window, and there is no TLS, key rotation, or multi-node
+story. See [docs/architecture.md](docs/architecture.md) for where those
+edges are.
 
 ## Documentation
 
