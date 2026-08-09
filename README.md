@@ -279,10 +279,18 @@ fallback chain across vendors requires, missed the table and priced at
 zero. A zero never trips a USD budget, so the cap silently did not
 exist. It was found by taking this screenshot.
 
-Note that many entries in the shipped price table are marked
-`# unverified`. The arithmetic is exact and the ledger reconciles with
-the running totals, but check the rates against provider pricing pages
-before trusting the absolute numbers.
+28 of the 37 entries in the shipped price table have been checked
+against the provider's own published page, and each names the date it
+was checked. The remaining 9 carry a `# unverified` marker and say why:
+Cerebras publishes no per-token rates at all, five models are gone from
+their providers' current catalogs, and one Mistral alias resolves to a
+model with no display name to join against a priced row.
+
+That pass was worth doing. It found three Mistral aliases billing
+**1.5x to 2.5x under** the published rate, which took a call to
+Mistral's own `/v1/models` to establish, because no published page says
+what a `-latest` alias currently resolves to. A rate is confirmed as of
+a date rather than forever, which is what the dates are for.
 
 ## Caching
 

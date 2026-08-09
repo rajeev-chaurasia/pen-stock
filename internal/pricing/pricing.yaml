@@ -25,88 +25,106 @@
 # (context-length tiers, cache reads, batch discounts) is not modelled:
 # where a provider tiers by context length, the base tier is used.
 #
+# A line marked "# confirmed <date>" was read from the provider's own
+# published price page on that date, under the source named in the
+# comment above its provider block.
+#
 # This file is compiled into the binary, and it is the only copy. An
 # operator who wants different numbers copies it out and points
 # accounting at the copy rather than editing a second source of truth.
 
-version: 1
-updated: "2026-08-05"
+version: 2
+updated: "2026-08-09"
 
 models:
-  # OpenAI
+  # OpenAI. Source: developers.openai.com/api/docs/pricing
   openai/gpt-4o:
     input_per_mtok: 2.50
     output_per_mtok: 10.00
   openai/gpt-4o-mini:
     input_per_mtok: 0.15
     output_per_mtok: 0.60
-  openai/gpt-4.1: # unverified
+  openai/gpt-4.1: # confirmed 2026-08-09
     input_per_mtok: 2.00
     output_per_mtok: 8.00
-  openai/gpt-4.1-mini: # unverified
+  openai/gpt-4.1-mini: # confirmed 2026-08-09
     input_per_mtok: 0.40
     output_per_mtok: 1.60
-  openai/gpt-4.1-nano: # unverified
+  openai/gpt-4.1-nano: # confirmed 2026-08-09
     input_per_mtok: 0.10
     output_per_mtok: 0.40
-  openai/gpt-5: # unverified
+  openai/gpt-5: # confirmed 2026-08-09
     input_per_mtok: 1.25
     output_per_mtok: 10.00
-  openai/gpt-5-mini: # unverified
+  openai/gpt-5-mini: # confirmed 2026-08-09
     input_per_mtok: 0.25
     output_per_mtok: 2.00
-  openai/gpt-5-nano: # unverified
+  openai/gpt-5-nano: # confirmed 2026-08-09
     input_per_mtok: 0.05
     output_per_mtok: 0.40
-  openai/o4-mini: # unverified
+  openai/o4-mini: # confirmed 2026-08-09
     input_per_mtok: 1.10
     output_per_mtok: 4.40
 
-  # Anthropic
+  # Anthropic. Source: platform.claude.com/docs/en/about-claude/pricing
+  # Opus 4.1 and Haiku 3.5 are retired on the first-party API and remain
+  # available on Bedrock and Google Cloud, where the rates below still
+  # apply. Haiku 3 is no longer listed on the price page at all.
   anthropic/claude-sonnet-4-5:
     input_per_mtok: 3.00
     output_per_mtok: 15.00
-  anthropic/claude-haiku-4-5: # unverified
+  anthropic/claude-haiku-4-5: # confirmed 2026-08-09
     input_per_mtok: 1.00
     output_per_mtok: 5.00
-  anthropic/claude-opus-4-1: # unverified
+  anthropic/claude-opus-4-1: # confirmed 2026-08-09
     input_per_mtok: 15.00
     output_per_mtok: 75.00
   anthropic/claude-3-5-haiku-20241022:
     input_per_mtok: 0.80
     output_per_mtok: 4.00
-  anthropic/claude-3-haiku-20240307:
+  anthropic/claude-3-haiku-20240307: # unverified
+    # Carried no mark until 2026-08-09, when a check found it is no
+    # longer on Anthropic's price page in any form. An unmarked entry
+    # nobody can source is worse than a marked one, because the mark is
+    # the only thing telling a reader not to trust the figure.
     input_per_mtok: 0.25
     output_per_mtok: 1.25
 
-  # Google Gemini. Gemini tiers 2.5 Pro by prompt length; the figures here
-  # are the short-context tier.
-  gemini/gemini-2.5-pro: # unverified
+  # Google Gemini. Source: ai.google.dev/gemini-api/docs/pricing
+  # Gemini tiers 2.5 Pro by prompt length; the figures here are the
+  # short-context tier (prompts up to 200k tokens). Text input rates are
+  # used where the page prices audio input separately, and the 2.5 output
+  # rates include thinking tokens. Gemini 2.0 Flash is marked shut down as
+  # of 2026-06-01 but is still priced on the page.
+  gemini/gemini-2.5-pro: # confirmed 2026-08-09
     input_per_mtok: 1.25
     output_per_mtok: 10.00
-  gemini/gemini-2.5-flash: # unverified
+  gemini/gemini-2.5-flash: # confirmed 2026-08-09
     input_per_mtok: 0.30
     output_per_mtok: 2.50
-  gemini/gemini-2.5-flash-lite: # unverified
+  gemini/gemini-2.5-flash-lite: # confirmed 2026-08-09
     input_per_mtok: 0.10
     output_per_mtok: 0.40
-  gemini/gemini-2.0-flash: # unverified
+  gemini/gemini-2.0-flash: # confirmed 2026-08-09
     input_per_mtok: 0.10
     output_per_mtok: 0.40
 
-  # Groq
+  # Groq. Source: console.groq.com/docs/models.md and the per-model pages
+  # under console.groq.com/docs/model. kimi-k2-instruct and qwen3-32b are
+  # absent from the supported-model listing and no published rate was
+  # found for either, so both stay unverified.
   groq/llama-3.3-70b-versatile:
     input_per_mtok: 0.59
     output_per_mtok: 0.79
   groq/llama-3.1-8b-instant:
     input_per_mtok: 0.05
     output_per_mtok: 0.08
-  groq/openai/gpt-oss-120b: # unverified
+  groq/openai/gpt-oss-120b: # confirmed 2026-08-09
     input_per_mtok: 0.15
-    output_per_mtok: 0.75
-  groq/openai/gpt-oss-20b: # unverified
-    input_per_mtok: 0.10
-    output_per_mtok: 0.50
+    output_per_mtok: 0.60
+  groq/openai/gpt-oss-20b: # confirmed 2026-08-09
+    input_per_mtok: 0.075
+    output_per_mtok: 0.30
   groq/moonshotai/kimi-k2-instruct: # unverified
     input_per_mtok: 1.00
     output_per_mtok: 3.00
@@ -114,7 +132,8 @@ models:
     input_per_mtok: 0.29
     output_per_mtok: 0.59
 
-  # Cerebras
+  # Cerebras. Cerebras publishes tier and subscription prices but no
+  # per-token rates, so nothing here could be confirmed.
   cerebras/llama-3.3-70b: # unverified
     input_per_mtok: 0.85
     output_per_mtok: 1.20
@@ -128,37 +147,61 @@ models:
     input_per_mtok: 0.40
     output_per_mtok: 0.80
 
-  # Mistral La Plateforme
+  # Mistral La Plateforme. Source: mistral.ai/pricing/api
+  #
+  # That page prices by display name ("Mistral Small 4") while the API
+  # takes a "-latest" alias, and no published page joins the two. The
+  # join was made against Mistral's own GET /v1/models on 2026-08-09,
+  # which reports each alias's target and that target's display name:
+  #
+  #   mistral-small-latest  -> mistral-small-2603  "Mistral Small 4"
+  #   ministral-8b-latest   -> ministral-8b-2512   "Ministral 3 8B"
+  #   ministral-3b-latest   -> ministral-3b-2512   "Ministral 3 3B"
+  #   codestral-latest      -> codestral-2508      Codestral
+  #
+  # Three of those were being billed under the published rate, by 1.5x
+  # to 2.5x. An alias moves when Mistral moves it, so these need
+  # rechecking whenever they do.
   mistral/mistral-large-latest: # unverified
+    # Resolves to mistral-large-2512, whose API description carries no
+    # display name, so it cannot be joined to a priced row. Mistral's own
+    # site also disagrees with itself: mistral.ai/pricing says Large is
+    # 2.00/6.00 in prose while mistral.ai/pricing/api tables Mistral
+    # Large 3 at 0.50/1.50. Left at the higher figure, which over-bills
+    # rather than under-bills if it is the stale one.
     input_per_mtok: 2.00
     output_per_mtok: 6.00
-  mistral/mistral-small-latest: # unverified
-    input_per_mtok: 0.10
-    output_per_mtok: 0.30
-  mistral/ministral-8b-latest: # unverified
+  mistral/mistral-small-latest: # confirmed 2026-08-09, was 0.10/0.30
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+  mistral/ministral-8b-latest: # confirmed 2026-08-09, was 0.10/0.10
+    input_per_mtok: 0.15
+    output_per_mtok: 0.15
+  mistral/ministral-3b-latest: # confirmed 2026-08-09, was 0.04/0.04
     input_per_mtok: 0.10
     output_per_mtok: 0.10
-  mistral/ministral-3b-latest: # unverified
-    input_per_mtok: 0.04
-    output_per_mtok: 0.04
-  mistral/codestral-latest: # unverified
+  mistral/codestral-latest: # confirmed 2026-08-09
     input_per_mtok: 0.30
     output_per_mtok: 0.90
-  mistral/open-mistral-nemo: # unverified
+  mistral/open-mistral-nemo: # confirmed 2026-08-09
     input_per_mtok: 0.15
     output_per_mtok: 0.15
 
   # OpenRouter. Prices track the upstream model and OpenRouter adds its
   # own margin on top, so every figure here is a lower bound at best.
-  openrouter/openai/gpt-4o-mini: # unverified
+  # Source: the openrouter.ai/api/v1/models/<id>/endpoints documents,
+  # which quote USD per token; the rates below are those figures times
+  # 1e6. The top-level rate is the default endpoint, and individual
+  # upstream endpoints can charge more.
+  openrouter/openai/gpt-4o-mini: # confirmed 2026-08-09
     input_per_mtok: 0.15
     output_per_mtok: 0.60
-  openrouter/anthropic/claude-sonnet-4-5: # unverified
+  openrouter/anthropic/claude-sonnet-4-5: # confirmed 2026-08-09
     input_per_mtok: 3.00
     output_per_mtok: 15.00
-  openrouter/deepseek/deepseek-chat-v3-0324: # unverified
-    input_per_mtok: 0.28
-    output_per_mtok: 0.88
+  openrouter/deepseek/deepseek-chat-v3-0324: # confirmed 2026-08-09
+    input_per_mtok: 0.24
+    output_per_mtok: 0.90
   # The :free variants cost nothing and are rate limited instead, but the
   # gateway still counts their tokens.
   "openrouter/deepseek/deepseek-r1:free":

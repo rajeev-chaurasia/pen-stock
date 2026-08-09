@@ -53,12 +53,19 @@ real token counts rather than as an absent metric series that reads as no
 traffic.
 
 Rates that were not checked against a published page are marked
-`# unverified` in the table itself. At `version: 1`, dated `2026-08-05`,
-30 of the 38 model entries carry that mark. The README, the file header,
-and [docs/cost-accounting.md](../cost-accounting.md) all say the same
-thing: the arithmetic is exact, the ledger reconciles with the running
-totals, and the absolute numbers should not be trusted for billing until
-each rate is confirmed.
+`# unverified` in the table itself. At `version: 2`, dated `2026-08-09`,
+9 of the 37 model entries carry that mark, down from 30 at version 1.
+Each confirmed entry names the date it was checked, so a reader can tell
+a rate that was verified from one that was verified a year ago.
+
+What remains marked is marked for a reason rather than for want of
+effort: Cerebras publishes no per-token rates at all, two Groq models
+and three Cerebras ones are absent from their providers' current
+catalogs, and `mistral-large-latest` resolves to a model whose API entry
+carries no display name to join against a priced row. One entry,
+`claude-3-haiku-20240307`, gained the mark rather than losing it: it
+carried none until a check found it is no longer on Anthropic's price
+page in any form.
 
 Tiered pricing is not modelled. Where a provider tiers by context length
 the base tier is used, and cached input rates, batch discounts, and
@@ -83,11 +90,20 @@ compiled in. That was accepted deliberately: an external file that can be
 edited under a running process is a second source of truth for money.
 `Load` exists for operators who want that anyway.
 
-The shipped table is mostly unverified, and saying so in three places
-does not make the numbers better. A user who ignores the warning gets
+Part of the table is still unverified, and saying so in three places
+does not make those numbers better. A user who ignores the warning gets
 plausible looking money that is wrong. The alternative, shipping no
 prices, would have made the entire cost feature undemonstrable, so the
 trade was made explicitly and labelled everywhere it shows up.
+
+The verification pass at version 2 showed the cost of leaving a rate
+unchecked is not hypothetical. Three Mistral aliases were billing under
+the published rate by 1.5x to 2.5x, and finding out took a call to
+Mistral's own `GET /v1/models` to learn what each `-latest` alias
+resolves to, because no published page joins an alias to a priced row.
+An alias moves when the provider moves it, so those three are correct
+today rather than correct permanently, which is what the check date on
+each entry is for.
 
 Unknown models cost nothing on the dashboard. Zero is recorded rather
 than a series being omitted, so the traffic is visible even though the

@@ -5,20 +5,37 @@ before the money is spent, and what is written down afterwards.
 
 ## Read this before you trust the numbers
 
-**30 of the 38 entries in the shipped price table are marked
-`# unverified`.**
+**9 of the 37 entries in the shipped price table are marked
+`# unverified`.** The other 28 were checked against the provider's own
+published page on the date each entry names.
 
-They are best-effort figures that were never checked against the provider's
-published pricing page. They are the right order of magnitude and they are
-useful for watching *shape*: which tenant is growing, which model dominates
-spend, whether a fallback chain quietly moved traffic onto a paid provider.
-They are not something to bill a customer against, or to put in front of
-anyone who will read the absolute number as fact.
+A marked entry is a best-effort figure that nobody has confirmed. It is
+the right order of magnitude and useful for watching *shape*: which
+tenant is growing, which model dominates spend, whether a fallback chain
+quietly moved traffic onto a paid provider. It is not something to bill
+a customer against.
 
-Before anyone relies on the absolute numbers, open
-`internal/pricing/pricing.yaml`, find every line carrying `# unverified`,
-check it against the provider's own pricing page, and remove the marker as
-you confirm each one. Bump `version` when you do.
+The nine that remain are marked for a reason rather than for want of
+effort. Cerebras publishes no per-token rates at all. Two Groq models
+and three Cerebras ones are gone from their providers' current catalogs.
+`mistral-large-latest` resolves to a model whose API entry carries no
+display name, so it cannot be joined to a priced row, and Mistral's own
+site disagrees with itself about Large in prose versus table.
+`claude-3-haiku-20240307` gained its marker rather than losing it: it
+had none until a check found it is no longer on Anthropic's price page
+at all.
+
+**A confirmed rate is confirmed as of a date, not forever.** The
+verification pass that produced version 2 found three Mistral aliases
+billing 1.5x to 2.5x under the published rate, because a `-latest` alias
+moves when the provider moves it. Each entry carries the date it was
+checked so that staleness is visible rather than assumed away.
+
+To verify more, open `internal/pricing/pricing.yaml`, find every line
+carrying `# unverified`, check it against the provider's own pricing
+page, and replace the marker with the date you confirmed it. Bump
+`version` if any rate changed, since ledger rows stamp the version they
+were priced under.
 
 Two further gaps in the model, independent of verification:
 
@@ -42,8 +59,8 @@ config; the model is everything after it, so aggregator ids that themselves
 contain slashes work unchanged.
 
 ```yaml
-version: 1
-updated: "2026-08-05"
+version: 2
+updated: "2026-08-09"
 
 models:
   openai/gpt-4o-mini:
