@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: build test race lint fmt vet dash-check sim run tidy
+.PHONY: build test race lint fmt vet dash-check palette-check sim run tidy
 
 build:
 	$(GO) build ./...
@@ -26,6 +26,13 @@ lint:
 # below avoids embedding one in this file.
 dash-check:
 	@! grep -rIn --exclude-dir=.git --exclude-dir=bin "$$(printf '\342\200\224')" . || (echo "em-dash found" && exit 1)
+
+# Every mermaid diagram draws from the legend in docs/architecture.md.
+# This fails if one uses a colour that is not defined there, or if the
+# theme directives that carry the palette for sequence diagrams drift
+# apart from each other.
+palette-check:
+	@bash scripts/palette-check.sh
 
 sim:
 	$(GO) run ./cmd/llmsim

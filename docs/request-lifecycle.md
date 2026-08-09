@@ -322,9 +322,8 @@ flowchart TD
     classDef policy fill:#fde68a,stroke:#b45309,color:#78350f
     classDef storage fill:#fecdd3,stroke:#9f1239,color:#881337
 
-    class REQ,PROCEED gateway
+    class REQ,KEY,SERVE,PROCEED gateway
     class ELIG,EXACT,SEM,NEAR policy
-    class KEY,SERVE policy
     class STORE storage
 ```
 

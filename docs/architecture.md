@@ -13,19 +13,38 @@ step by step walk through one request lives in
 
 ## How to read the diagrams
 
-Every diagram on this page and in
-[request-lifecycle.md](request-lifecycle.md) uses one palette, so a color
-means the same thing everywhere.
+Every diagram on this page, in
+[request-lifecycle.md](request-lifecycle.md), and in the README uses one
+palette, so a color means the same thing everywhere.
 
-| Color | Role | Meaning |
-|---|---|---|
-| Blue | Client surface | Something outside the gateway that calls it |
-| Grey | Gateway internals | Code in this repository that moves a request along |
-| Amber | Policy or decision point | A place that can refuse, divert, or short circuit a request |
-| Green | Provider adapter | Code that speaks one upstream wire format |
-| Purple | External service | A third party API the gateway calls out to |
-| Pink | Storage | Something that outlives one request |
-| Teal | Operator surface | The admin listener and whoever reads it |
+This table is the source of truth for it. `make palette-check` reads the
+hex values out of this block and fails if any diagram in the repository
+uses a colour that is not here, because the alternative is a palette
+change that lands in six diagrams out of seven and nobody notices.
+
+| Color | Role | Meaning | Fill | Stroke |
+|---|---|---|---|---|
+| Blue | Client surface | Something outside the gateway that calls it | `#dbeafe` | `#1e40af` |
+| Grey | Gateway internals | Code in this repository that moves a request along | `#e2e8f0` | `#334155` |
+| Amber | Policy or decision point | A place that can refuse, divert, or short circuit a request | `#fde68a` | `#b45309` |
+| Green | Provider adapter | Code that speaks one upstream wire format | `#bbf7d0` | `#15803d` |
+| Purple | External service | A third party API the gateway calls out to | `#e9d5ff` | `#6b21a8` |
+| Pink | Storage | Something that outlives one request | `#fecdd3` | `#9f1239` |
+| Teal | Operator surface | The admin listener and whoever reads it | `#99f6e4` | `#0f766e` |
+
+Text colours pair with the fills and are listed in the `classDef` lines
+of each diagram: `#1e3a8a`, `#0f172a`, `#78350f`, `#14532d`, `#4c1d95`,
+`#881337`, `#134e4a`.
+
+Sequence diagrams cannot take `classDef`, so the four in
+[request-lifecycle.md](request-lifecycle.md) carry the same values in a
+`%%{init}%%` theme directive instead. The check requires all four of
+those blocks to be byte identical to each other, which is the property
+that would otherwise drift silently.
+
+Those directives also set two colours that carry no role, because a
+sequence diagram needs them and the roles do not cover them: `#64748b`
+for the participant lifelines, and `#f8fafc` for the autonumber text.
 
 ## The request path
 
@@ -167,6 +186,13 @@ flowchart TD
     class admin operator
 ```
 
+Packages here are coloured by what they are for, not by the fact that
+they are all Go packages: `budget` and `cache` are amber because both can
+refuse a request, `pricing` is pink because the ledger outlives the
+request that wrote it, and `admin` is teal because it is the operator
+surface. Grey is the legend's "moves a request along", which is what the
+rest of them do.
+
 `config` is at the bottom because it has no internal imports at all, and
 it must not acquire any. It is the package that decides whether the
 gateway is allowed to start, and that decision has to be answerable
@@ -234,8 +260,8 @@ flowchart LR
     classDef external fill:#e9d5ff,stroke:#6b21a8,color:#4c1d95
 
     class FAIL external
-    class CALLER,TRANSIENT,CREDIT,MISSING policy
-    class RETURN,RETRY,NEXT,BREAKER,UNTOUCHED gateway
+    class CALLER,TRANSIENT,CREDIT,MISSING,BREAKER,UNTOUCHED gateway
+    class RETURN,RETRY,NEXT policy
 ```
 
 A rate limit fails over immediately rather than retrying, because the

@@ -103,6 +103,7 @@ flowchart TD
     ROUTER[Router]
     ADAPTER[Provider adapters]
     UPSTREAM[Provider APIs]
+    STORE[(Answer store)]
     LEDGER[(Cost ledger)]
 
     CLIENT -->|chat request| LISTEN
@@ -110,6 +111,7 @@ flowchart TD
     GATE -->|key to tenant| CACHE
     CACHE -->|hit| CLIENT
     CACHE -->|miss| BUDGET
+    CACHE --- STORE
     BUDGET -->|reserved| ROUTER
     ROUTER -->|chosen| ADAPTER
     ADAPTER --> UPSTREAM
@@ -128,7 +130,7 @@ flowchart TD
     class GATE,CACHE,BUDGET policy
     class ADAPTER adapter
     class UPSTREAM external
-    class LEDGER storage
+    class STORE,LEDGER storage
 ```
 
 Two orderings in that picture are deliberate. The cache is consulted

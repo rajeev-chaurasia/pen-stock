@@ -31,6 +31,8 @@ jobs:
             echo "em-dash character found in the files above"
             exit 1
           fi
+      - name: palette gate
+        run: bash scripts/palette-check.sh
       - name: vet
         run: go vet ./...
       - name: build
