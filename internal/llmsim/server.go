@@ -214,10 +214,15 @@ type chatResponse struct {
 }
 
 type errorDetail struct {
-	Message string  `json:"message"`
-	Type    string  `json:"type"`
-	Param   *string `json:"param"`
-	Code    string  `json:"code"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	// Param is always null and is never set. It carries no omitempty on
+	// purpose: the OpenAI error object includes the key, so a client
+	// parsing that shape expects to find it. Dropping the field would
+	// make this simulator emit an envelope no real provider sends, which
+	// defeats the one thing it exists for.
+	Param *string `json:"param"`
+	Code  string  `json:"code"`
 }
 
 type errorBody struct {

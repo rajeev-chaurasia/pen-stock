@@ -91,9 +91,7 @@ const pathOther = "other"
 // tagging telemetry with a client supplied path need this: a scanner
 // walking random URLs would otherwise mint unbounded label or span name
 // cardinality in the backend.
-func NormalizePath(path string) string { return normalizePath(path) }
-
-func normalizePath(path string) string {
+func NormalizePath(path string) string {
 	if _, ok := knownPaths[path]; ok {
 		return path
 	}

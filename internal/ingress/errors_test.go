@@ -60,7 +60,7 @@ func TestWriteErrorJSONMatchesSharedWriter(t *testing.T) {
 // which marshals the envelope itself instead of calling the writer, so
 // its frame has to be proven equal separately.
 func TestStreamErrorFrameMatchesSharedEnvelope(t *testing.T) {
-	local, err := json.Marshal(errorEnvelope{Error: errorBody{
+	local, err := json.Marshal(httperr.Envelope{Error: httperr.Body{
 		Message: "upstream stream ended before completion",
 		Type:    errTypeAPI,
 		Code:    "stream_truncated",

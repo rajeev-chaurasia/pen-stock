@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
 const (
@@ -55,8 +57,6 @@ const (
 	// redactedKey stands in for the API key in any string that might be
 	// logged.
 	redactedKey = "[redacted]"
-
-	defaultEmbedIdleConnsPerHost = 32
 )
 
 // ErrEmbedFailed is the root of every failure this embedder reports.
@@ -102,7 +102,7 @@ func NewGeminiEmbedder(baseURL, apiKey, model string, client *http.Client) Embed
 		model = DefaultEmbedModel
 	}
 	if client == nil {
-		client = defaultEmbedClient()
+		client = providers.NewHTTPClient()
 	}
 	bare := strings.TrimPrefix(model, embedModelPrefix)
 	return &geminiEmbedder{
@@ -112,18 +112,6 @@ func NewGeminiEmbedder(baseURL, apiKey, model string, client *http.Client) Embed
 		qualified: embedModelPrefix + bare,
 		client:    client,
 	}
-}
-
-// defaultEmbedClient keeps the stdlib transport defaults and widens the
-// idle pool. No client Timeout: deadlines arrive on the context, which
-// is where a caller can set one that reflects its own budget.
-func defaultEmbedClient() *http.Client {
-	transport := &http.Transport{}
-	if t, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = t.Clone()
-	}
-	transport.MaxIdleConnsPerHost = defaultEmbedIdleConnsPerHost
-	return &http.Client{Transport: transport}
 }
 
 // Dimensions reports the model's vector width, or zero when this package

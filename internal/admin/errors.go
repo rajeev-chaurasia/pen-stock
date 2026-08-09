@@ -20,10 +20,6 @@ const (
 	codeMethodNotAllowed = "method_not_allowed"
 )
 
-// errorEnvelope is the shared client-facing envelope under this
-// package's historical name.
-type errorEnvelope = httperr.Envelope
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	httperr.WriteJSON(w, status, v)
 }

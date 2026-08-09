@@ -33,13 +33,6 @@ const (
 	maxRelayedMessage = 512
 )
 
-// The shared envelope under this package's historical names, so the
-// streaming path can keep composing a frame directly.
-type (
-	errorBody     = httperr.Body
-	errorEnvelope = httperr.Envelope
-)
-
 // secretPattern matches text that must never be relayed to a client:
 // bearer tokens, common provider key prefixes, and bare private IPs that
 // upstream proxies like to name in their error pages.

@@ -205,3 +205,60 @@ func containsString(list []string, want string) bool {
 	}
 	return false
 }
+
+// A hit calls no provider, so there is nothing to charge for. Reserving
+// against a tenant's budget for a request that cost nothing would bill
+// the same answer twice, once when it was fetched and again every time
+// it is replayed.
+//
+// This is the property the cache's ordering exists to deliver, and until
+// now nothing asserted it: the cache is deliberately consulted before
+// accounting, so a tenant at its spend cap is still served an answer the
+// gateway already holds.
+func TestCacheHitDoesNotTouchTheBudget(t *testing.T) {
+	prov := &countingChat{name: "groq", body: []byte(`{"answer":"a pipe"}`),
+		usage: providers.Usage{PromptTokens: 8, CompletionTokens: 4}}
+	acct := &recordingAccountant{}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	record := func(cache.Event) {}
+	lookup := cache.NewLookup(cache.LookupOptions{
+		Exact:   cache.NewExact(cache.ExactOptions{OnEvent: record}),
+		OnEvent: record,
+	})
+	srv := ingress.NewServer(defaultCfg(), map[string]providers.Provider{"m": prov}, log,
+		ingress.WithCache(lookup), ingress.WithAccounting(acct))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	first := postChat(t, ts, zeroTempBody)
+	_, _ = io.Copy(io.Discard, first.Body)
+	_ = first.Body.Close()
+
+	begins, settles, _ := acct.snapshot()
+	if len(begins) != 1 || len(settles) != 1 {
+		t.Fatalf("the first request reserved %d and settled %d, want 1 and 1", len(begins), len(settles))
+	}
+
+	second := postChat(t, ts, zeroTempBody)
+	_, _ = io.Copy(io.Discard, second.Body)
+	_ = second.Body.Close()
+
+	if got := second.Header.Get("X-Penstock-Cache"); got != "hit-exact" {
+		t.Fatalf("the repeat was not served from cache: header = %q", got)
+	}
+	if got := prov.count(); got != 1 {
+		t.Errorf("upstream calls = %d, want the cache to have answered", got)
+	}
+
+	begins, settles, aborts := acct.snapshot()
+	if len(begins) != 1 {
+		t.Errorf("reservations = %d, want the hit to have taken none", len(begins))
+	}
+	if len(settles) != 1 {
+		t.Errorf("settlements = %d, want the hit to have settled nothing", len(settles))
+	}
+	if aborts != 0 {
+		t.Errorf("aborts = %d, want none: nothing was ever reserved to release", aborts)
+	}
+}

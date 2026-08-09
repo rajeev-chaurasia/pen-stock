@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/budget"
+	"github.com/rajeev-chaurasia/pen-stock/internal/httperr"
 )
 
 // usdEpsilon absorbs binary floating point slop on a decimal figure.
@@ -67,9 +68,9 @@ func wantJSON(t *testing.T, rec *httptest.ResponseRecorder) {
 	}
 }
 
-func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder) errorEnvelope {
+func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder) httperr.Envelope {
 	t.Helper()
-	var env errorEnvelope
+	var env httperr.Envelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decoding error envelope: %v (body %q)", err, rec.Body.String())
 	}

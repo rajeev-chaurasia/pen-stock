@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
@@ -223,15 +222,6 @@ func TestPromptTextIncludesRoles(t *testing.T) {
 	// unreadable request would look identical to every other one.
 	if got := PromptText([]byte(`{"messages":`)); got != "" {
 		t.Errorf("PromptText on a broken body = %q", got)
-	}
-}
-
-func TestStoredEntryKeepsItsUsageForReporting(t *testing.T) {
-	// A hit reports what it avoided. It must not become the tenant's
-	// spend, since no provider was paid this time.
-	e := &Entry{Usage: providers.Usage{PromptTokens: 10, CompletionTokens: 20}, USD: 0.5, StoredAt: time.Now()}
-	if got := ReplayUsage(e); got != e.Usage {
-		t.Errorf("ReplayUsage = %+v, want the stored usage", got)
 	}
 }
 

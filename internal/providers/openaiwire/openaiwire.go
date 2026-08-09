@@ -29,8 +29,6 @@ const (
 	// completions run to a few MB at most, so 32 MiB is generous while
 	// keeping a hostile upstream from forcing unbounded allocation.
 	maxResponseBytes int64 = 32 << 20
-
-	defaultMaxIdleConnsPerHost = 32
 )
 
 type provider struct {
@@ -53,7 +51,7 @@ func New(name, baseURL, apiKey string, client *http.Client) providers.Provider {
 
 func newWithProfile(name, baseURL, apiKey string, prof profile, client *http.Client) providers.Provider {
 	if client == nil {
-		client = defaultClient()
+		client = providers.NewHTTPClient()
 	}
 	return &provider{
 		name:    name,
@@ -62,19 +60,6 @@ func newWithProfile(name, baseURL, apiKey string, prof profile, client *http.Cli
 		profile: prof,
 		client:  client,
 	}
-}
-
-// defaultClient keeps the stdlib transport defaults (proxy, TLS, HTTP/2)
-// and widens the per-host idle pool for gateway-style fan-in. No client
-// Timeout on purpose: deadlines arrive via ctx and a client timeout
-// would kill long streams.
-func defaultClient() *http.Client {
-	transport := &http.Transport{}
-	if t, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = t.Clone()
-	}
-	transport.MaxIdleConnsPerHost = defaultMaxIdleConnsPerHost
-	return &http.Client{Transport: transport}
 }
 
 func (p *provider) Name() string { return p.name }
@@ -86,7 +71,7 @@ func (p *provider) Chat(ctx context.Context, req *providers.ChatRequest) (*provi
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if !is2xx(resp.StatusCode) {
+	if !providers.Is2xx(resp.StatusCode) {
 		return nil, p.statusError(resp)
 	}
 	// Read one byte past the cap: a LimitReader hitting its limit is
@@ -123,7 +108,7 @@ func (p *provider) ChatStream(ctx context.Context, req *providers.ChatRequest) (
 	if err != nil {
 		return nil, err
 	}
-	if !is2xx(resp.StatusCode) {
+	if !providers.Is2xx(resp.StatusCode) {
 		defer func() { _ = resp.Body.Close() }()
 		return nil, p.statusError(resp)
 	}
@@ -197,8 +182,6 @@ func upstreamErrorMessage(body []byte, status int) string {
 	}
 	return fmt.Sprintf("upstream returned status %d", status)
 }
-
-func is2xx(code int) bool { return code >= 200 && code < 300 }
 
 type usageJSON struct {
 	PromptTokens     int `json:"prompt_tokens"`

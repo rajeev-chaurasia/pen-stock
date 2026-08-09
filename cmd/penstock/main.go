@@ -164,9 +164,6 @@ func run() error {
 	}
 }
 
-// buildRoutes turns each configured route into a provider, wrapping the
-// chain in a router so a single-provider route and a fallback chain
-// behave identically from the ingress side.
 // routerOptions carries the configured retry and breaker tuning into
 // the router. A zero field stays zero here rather than being filled in,
 // because the router's own withDefaults owns the defaults and two
@@ -182,6 +179,9 @@ func routerOptions(cfg *config.Config) router.Options {
 	}
 }
 
+// buildRoutes turns each configured route into a provider, wrapping the
+// chain in a router so a single-provider route and a fallback chain
+// behave identically from the ingress side.
 func buildRoutes(cfg *config.Config, provs map[string]providers.Provider) (map[string]providers.Provider, error) {
 	opts := routerOptions(cfg)
 

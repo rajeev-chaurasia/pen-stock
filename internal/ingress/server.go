@@ -185,7 +185,7 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.log.Error("panic recovered", "path", normalizePath(r.URL.Path), "panic", rec)
+				s.log.Error("panic recovered", "path", NormalizePath(r.URL.Path), "panic", rec)
 				writeErrorJSON(w, http.StatusInternalServerError, "internal error", errTypeAPI, "internal")
 			}
 		}()
@@ -203,7 +203,7 @@ func (s *Server) withAccessLog(next http.Handler) http.Handler {
 		// Deferred so a panic unwinding through here is still measured.
 		defer func() {
 			elapsed := time.Since(start)
-			s.metrics.ObserveRequest(normalizePath(r.URL.Path), info.provider,
+			s.metrics.ObserveRequest(NormalizePath(r.URL.Path), info.provider,
 				strconv.Itoa(sw.Status()), elapsed.Seconds(), info.stream)
 
 			// Request and response bodies are deliberately never logged.

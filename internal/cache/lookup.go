@@ -3,13 +3,18 @@ package cache
 import (
 	"context"
 	"strings"
-
-	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
 // Lookup is the single call the request path makes into caching. It
 // hides the fact that there are two tiers, because the ingress does not
 // care which one answered, only whether it may skip the provider.
+//
+// A nil *Lookup is valid and behaves as a cache that never hits and
+// never stores. That is how caching is turned off: the binary hands the
+// ingress a nil one when the config disables it, and the ingress calls
+// Get and Put unconditionally rather than guarding every call site. Any
+// method added here must route through Enabled first, or it will panic
+// on the disabled path that every deployment without a cache takes.
 type Lookup struct {
 	exact    Cache
 	semantic Semantic
@@ -145,11 +150,6 @@ func (l *Lookup) emit(e Event) {
 		l.onEvent(e)
 	}
 }
-
-// ReplayUsage reports the usage a hit avoided. It is deliberately not
-// the tenant's spend: no provider was paid this time, and adding it
-// would bill a caller twice for one answer.
-func ReplayUsage(e *Entry) providers.Usage { return e.Usage }
 
 // PromptText extracts the conversation text a semantic lookup compares
 // on. Roles are included because the same words from a system and a

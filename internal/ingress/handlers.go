@@ -358,7 +358,7 @@ func (s *Server) finishStream(w http.ResponseWriter, flusher http.Flusher, provi
 	}
 
 	s.log.Error("stream ended early", "provider", provider, "error", cause)
-	frame, err := json.Marshal(errorEnvelope{Error: errorBody{
+	frame, err := json.Marshal(httperr.Envelope{Error: httperr.Body{
 		Message: "upstream stream ended before completion",
 		Type:    errTypeAPI,
 		Code:    "stream_truncated",
