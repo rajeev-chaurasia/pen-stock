@@ -20,6 +20,16 @@ import (
 	"github.com/rajeev-chaurasia/pen-stock/internal/providers"
 )
 
+// Repetitive on purpose. A test key shaped like a real one trips the
+// secret scanner's entropy heuristic in CI, and the repo's answer to
+// that is a fake that looks fake rather than a scanner allowlist, which
+// would be a place a real key could later hide.
+var (
+	acmeTestKey  = "acme-not-a-secret-" + strings.Repeat("k", 16)
+	betaTestKey1 = "beta-not-a-secret-one-" + strings.Repeat("k", 16)
+	betaTestKey2 = "beta-not-a-secret-two-" + strings.Repeat("k", 16)
+)
+
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 // tenantConfig is one billable tenant in front of one aliased route,
@@ -30,7 +40,7 @@ func tenantConfig() *config.Config {
 	return &config.Config{
 		Auth: config.AuthConfig{Tenants: []config.TenantConfig{{
 			Name: "acme",
-			Keys: []string{"acme-key-0123456789abcdef"},
+			Keys: []string{acmeTestKey},
 			Limits: config.TenantLimits{
 				RequestsPerMinute: 60,
 				DailyUSD:          5,
@@ -429,14 +439,14 @@ func TestTenantKeysAreTheOnlyCredentialsSomeDeploymentsHave(t *testing.T) {
 	cfg := tenantConfig()
 	cfg.Auth.Tenants = append(cfg.Auth.Tenants, config.TenantConfig{
 		Name: "beta",
-		Keys: []string{"beta-key-0123456789abcdef", "beta-key-fedcba9876543210"},
+		Keys: []string{betaTestKey1, betaTestKey2},
 	})
 
 	byTenant := tenantKeys(cfg)
 	if len(byTenant) != 2 {
 		t.Fatalf("tenantKeys = %v, want both configured tenants", byTenant)
 	}
-	if got := byTenant["acme"]; len(got) != 1 || got[0] != "acme-key-0123456789abcdef" {
+	if got := byTenant["acme"]; len(got) != 1 || got[0] != acmeTestKey {
 		t.Errorf("acme keys = %v, want the one configured key", got)
 	}
 	if got := byTenant["beta"]; len(got) != 2 {

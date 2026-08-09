@@ -27,7 +27,13 @@ import (
 // The tenant key is the only credential in these tests. It is long
 // enough to pass the config loader's minimum, which is what a real
 // deployment key has to clear too.
-const bootTenantKey = "acme-key-0123456789abcdef"
+// Long enough to clear the loader's minimum key length, and repetitive
+// on purpose. A test key with the shape of a real one trips the secret
+// scanner's entropy heuristic in CI, which is a build failure over a
+// string that was never a secret. The repo's answer to that is to make
+// the fake obviously fake rather than to add a scanner allowlist, since
+// an allowlist is a place a real key could later hide.
+var bootTenantKey = "acme-not-a-secret-" + strings.Repeat("k", 16)
 
 // upstreamCall is what the fake backend saw. The rename a route performs
 // is invisible from the client side, so the only way to prove it
