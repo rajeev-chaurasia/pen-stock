@@ -86,21 +86,37 @@ fallback.
 
 ### Providers
 
-| Kind | Wire format | Verified |
+| Kind | Adapter | Verified |
 |---|---|---|
-| `groq` | OpenAI | live |
-| `mistral` | OpenAI | live |
-| `openrouter` | OpenAI | live |
-| `gemini` | native, translated | live |
-| `openai` | OpenAI | conformance suite |
-| `cerebras` | OpenAI | conformance suite |
-| `anthropic` | native, translated | conformance suite |
-| `openai_compat` | OpenAI | live, against the bundled simulator |
+| `groq` | `openaiwire` | live |
+| `mistral` | `openaiwire` | live |
+| `openrouter` | `openaiwire` | live |
+| `openai_compat` | `openaiwire` | live, against the bundled simulator |
+| `openai` | `openaiwire` | conformance suite |
+| `cerebras` | `openaiwire` | conformance suite |
+| `gemini` | own translation layer | live |
+| `anthropic` | own translation layer | conformance suite |
 
 "Live" means real traffic through the gateway against that provider's
 API. "Conformance suite" means it satisfies the same contract every
 adapter is held to, exercised against recorded response shapes rather
 than the live service.
+
+The adapter column is the one that tells you how much that distinction
+costs. Six of these kinds are the same adapter: a vendor speaking the
+OpenAI wire is one line in a profile registry giving its base URL and
+whether it supports `stream_options`. So `openai` and `cerebras` are the
+code path that groq, mistral and openrouter exercise live, with a
+different URL. They are not separately risky, they are separately
+untried.
+
+`anthropic` is the one where "conformance suite" means something. It has
+its own translation layer, like `gemini` does, and unlike `gemini` no
+live traffic has ever gone through it. That layer is held to the same
+executable contract as every other adapter, which is
+[ADR 0004](docs/adr/0004-provider-adapter-contract-and-conformance-suite.md),
+and the contract is the reason a second wire format was cheap to add at
+all. Treat it as supported and unproven, in that order.
 
 ### Behavior worth knowing
 
