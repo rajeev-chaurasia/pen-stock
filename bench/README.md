@@ -383,5 +383,17 @@ with the run id, the scenario, and which arm they came from.
 Server logs and the soak's memory samples are gitignored: they are
 debugging aids, not evidence.
 
+**Committed evidence has exactly one substitution applied.** The home
+directory of whoever captured a run prints as `$HOME`, and
+`verify-uvloop.sh` and the Linux `run.sh` now apply the same
+substitution at capture time. Nothing else in these transcripts is
+edited. The uvloop evidence turns on the interpreter and the mapped
+`.so` sharing a prefix, which a single consistent token preserves.
+
+**Toolchains are expected under `$HOME/sdk` by default.** That is one
+author's layout, not a requirement: every path is an overridable
+variable, so `LITELLM_VENV`, `WORKDIR`, `REPO` and `PATH` will move any
+of it.
+
 **A result is `<run>.raw.json` plus `<run>.meta.json`.** Neither is worth
 anything alone.

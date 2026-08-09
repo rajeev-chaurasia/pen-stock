@@ -97,8 +97,8 @@ fi
 [ -x "$LITELLM_CLI" ] || die \
   "no LiteLLM proxy found at $LITELLM_CLI" \
   "" \
-  "This machine has no system Python, so LiteLLM lives in a user scoped" \
-  "venv created with uv. No admin rights are needed. To build it:" \
+  "LiteLLM lives in a user scoped venv created with uv, which brings its" \
+  "own CPython. No elevation is needed. To build it:" \
   "" \
   "  export PATH=\"\$HOME/.local/bin:\$PATH\"" \
   "  uv venv --python 3.12 \$HOME/sdk/litellm-venv" \
@@ -455,11 +455,15 @@ mem_total() {
   echo "unknown"
 }
 
+# Kept in step with bench/run.sh. The Windows edition is dropped: it
+# names the licence rather than the machine, and nothing about it changes
+# a latency figure.
 os_desc() {
   if [ "$IS_WINDOWS" = "1" ] && command -v powershell >/dev/null 2>&1; then
     powershell -NoProfile -Command \
       "(Get-CimInstance Win32_OperatingSystem).Caption + ' ' + (Get-CimInstance Win32_OperatingSystem).Version" 2>/dev/null \
-      | tr -d '\r' && return 0
+      | tr -d '\r' \
+      | sed -E 's/^Microsoft (Windows [0-9]+)( [A-Za-z]+)*/\1/' && return 0
   fi
   uname -srm 2>/dev/null || echo "unknown"
 }

@@ -276,6 +276,12 @@ set +e
     echo "VERDICT  uvloop NOT observed. Do not claim it was active for this run."
   fi
 } >"$UVLOOP_TXT" 2>&1
+# The capturing account's home prints as $HOME, the same substitution
+# verify-uvloop.sh applies. The evidence is that the interpreter and the
+# mapped .so share a prefix, which survives it. Done after the redirect
+# rather than through a process substitution, because the next line reads
+# this file back and would race an async writer.
+sed -i "s|$HOME|\$HOME|g" "$UVLOOP_TXT"
 UVLOOP_VERDICT="$(grep -c 'UVLOOP MAPPED' "$UVLOOP_TXT")"
 set -e
 echo "  ok   uvloop evidence: $UVLOOP_VERDICT litellm process(es) have uvloop mapped -> $UVLOOP_TXT"

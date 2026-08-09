@@ -36,12 +36,17 @@
 #   bash bench/compare/linux/setup.sh
 #
 # It writes a self contained working tree at $WORKDIR (default
-# ~/penstock-bench) because /mnt/c is slow enough to show up in a
-# millisecond scale measurement.
+# ~/penstock-bench). Running from a Windows drive mounted under /mnt is
+# slow enough to show up in a millisecond scale measurement, so the copy
+# is not an optimisation, it is what keeps the numbers meaningful.
 
 set -euo pipefail
 
-: "${REPO:=/mnt/c/Users/rchaurasia/Documents/projects/pen-stock}"
+# REPO defaults to the checkout this script lives in. The git lookup is
+# the reliable answer; the directory walk covers the case where this file
+# has been copied somewhere outside a work tree.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+: "${REPO:=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$script_dir/../../.." && pwd))}"
 : "${WORKDIR:=$HOME/penstock-bench}"
 : "${LITELLM_VENV:=$HOME/sdk/litellm-venv-linux}"
 : "${LITELLM_VERSION:=1.95.0}"

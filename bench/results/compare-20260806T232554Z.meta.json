@@ -8,7 +8,7 @@
     "cpu": "Intel(R) Core(TM) Ultra 7 265H",
     "logical_cpus": "16",
     "memory": "63.5 GiB",
-    "os": "Microsoft Windows 11 Enterprise 10.0.26200",
+    "os": "Windows 11 10.0.26200",
     "note": "k6, three llmsim instances, penstock and litellm all ran on this one machine and competed for these cores"
   },
 

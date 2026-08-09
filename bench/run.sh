@@ -524,11 +524,15 @@ mem_total() {
   echo "unknown"
 }
 
+# os_desc records the OS and version. The Windows edition is dropped: it
+# names the licence rather than the machine, and nothing about it changes
+# a latency figure. The version, which can, is kept.
 os_desc() {
   if [ "$IS_WINDOWS" = "1" ] && command -v powershell >/dev/null 2>&1; then
     powershell -NoProfile -Command \
       "(Get-CimInstance Win32_OperatingSystem).Caption + ' ' + (Get-CimInstance Win32_OperatingSystem).Version" 2>/dev/null \
-      | tr -d '\r' && return 0
+      | tr -d '\r' \
+      | sed -E 's/^Microsoft (Windows [0-9]+)( [A-Za-z]+)*/\1/' && return 0
   fi
   uname -srm 2>/dev/null || echo "unknown"
 }

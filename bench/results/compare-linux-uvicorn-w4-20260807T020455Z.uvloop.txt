@@ -3,12 +3,12 @@ server            uvicorn
 num_workers       4
 platform loop     uvloop
 
-pid 893557  no uvloop mapping   (/home/rchaurasia/sdk/litellm-venv-linux/bin/python /home/rch)
-pid 893621  no uvloop mapping   (/home/rchaurasia/sdk/litellm-venv-linux/bin/python -c from m)
-pid 893622  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
-pid 893623  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
-pid 893624  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
-pid 893625  UVLOOP MAPPED  /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 893557  no uvloop mapping   ($HOME/sdk/litellm-venv-linux/bin/python /home/rch)
+pid 893621  no uvloop mapping   ($HOME/sdk/litellm-venv-linux/bin/python -c from m)
+pid 893622  UVLOOP MAPPED  $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 893623  UVLOOP MAPPED  $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 893624  UVLOOP MAPPED  $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+pid 893625  UVLOOP MAPPED  $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
 
 uvloop_mapped_processes  4 of 6
 VERDICT  uvloop was loaded by the litellm process(es) this run measured.

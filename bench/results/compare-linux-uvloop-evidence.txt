@@ -1,7 +1,7 @@
 ======================================================================
 uvloop evidence
 date        2026-08-07T01:10:00Z
-venv        /home/rchaurasia/sdk/litellm-venv-linux
+venv        $HOME/sdk/litellm-venv-linux
 kernel      Linux 6.6.114.1-microsoft-standard-WSL2 x86_64
 ======================================================================
 
@@ -15,7 +15,7 @@ uvloop      0.22.1
 orjson      3.11.9
 pydantic    2.13.4
 gunicorn    23.0.0
-uvloop import OK, uvloop.__file__ = /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/__init__.py
+uvloop import OK, uvloop.__file__ = $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/__init__.py
 
 --- 2. uvicorn loop=auto resolves to what? ----------------------
 uvicorn LOOP_FACTORIES['auto'] = uvicorn.loops.auto:auto_loop_factory
@@ -51,9 +51,9 @@ is a uvloop loop       -> True
 live completion through the proxy: HTTP 200
 litellm pids: 872614
 
-pid 872614  cmd: /home/rchaurasia/sdk/litellm-venv-linux/bin/python /home/rchaurasia/sdk/litellm-venv-linux
+pid 872614  cmd: $HOME/sdk/litellm-venv-linux/bin/python $HOME/sdk/litellm-venv-linux
          UVLOOP MAPPED:
-           /home/rchaurasia/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
+           $HOME/sdk/litellm-venv-linux/lib/python3.12/site-packages/uvloop/loop.cpython-312-x86_64-linux-gnu.so
 
 RESULT: uvloop IS loaded by the running LiteLLM proxy.
 
@@ -62,4 +62,4 @@ RESULT: uvloop IS loaded by the running LiteLLM proxy.
 control pid 872779
 control pid 872779: no uvloop mapping, as expected. The probe discriminates.
 
-evidence written to /home/rchaurasia/penstock-bench/bench/results/uvloop-evidence.txt
+evidence written to $HOME/penstock-bench/bench/results/uvloop-evidence.txt

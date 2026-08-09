@@ -23,7 +23,10 @@
 set -euo pipefail
 
 : "${WORKDIR:=$HOME/penstock-bench}"
-: "${REPO:=/mnt/c/Users/rchaurasia/Documents/projects/pen-stock}"
+# REPO is the checkout to copy results back into, defaulting to the one
+# this script lives in.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+: "${REPO:=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$script_dir/../../.." && pwd))}"
 
 SRC="$WORKDIR/bench/results"
 DST="$REPO/bench/results"

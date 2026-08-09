@@ -35,7 +35,10 @@ PY="$LITELLM_VENV/bin/python"
 cd "$WORKDIR"
 mkdir -p "$(dirname "$OUT")"
 
-exec > >(tee "$OUT") 2>&1
+# The home directory of whoever captured the run prints as $HOME. Paths
+# are the evidence here, so what matters is that the interpreter and the
+# mapped .so share a prefix, not whose account they sat under.
+exec > >(sed "s|$HOME|\$HOME|g" | tee "$OUT") 2>&1
 
 echo "======================================================================"
 echo "uvloop evidence"

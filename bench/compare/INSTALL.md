@@ -1,27 +1,17 @@
-# Getting LiteLLM running with no system Python and no admin rights
+# Installing LiteLLM user scoped, without elevation
 
 This is the transcript of how the LiteLLM side of the comparison was
-built, written down because a comparison whose loser could not be
-reproduced is not checkable. Every command below was run as an
-unprivileged user. Nothing was installed system wide, nothing needed
-an administrator, and nothing outside `$HOME` was written to.
+built, written down because a comparison whose loser cannot be rebuilt
+is not checkable. Nothing here is installed system wide, nothing needs
+an administrator, and nothing outside `$HOME` is written to.
 
-## The starting position
+## The approach
 
-This machine has no system Python. What is on `PATH` as `python` is the
-Windows Store app execution alias, which is not an interpreter:
-
-```
-$ python --version
-Python was not found; run without arguments to install from the
-Microsoft Store, or disable this shortcut from Settings > Apps >
-Advanced app settings > App execution aliases.
-```
-
-`scoop` and `choco` are absent. `winget` is present but installs
-machine wide. `uv` is present under `~/.local/bin`, and `uv` can fetch
-and manage its own user scoped CPython builds, so that is the route
-taken. No Store install, no `winget`, no elevation.
+`uv` fetches and manages its own user scoped CPython, so no interpreter
+needs to exist on `PATH` and no machine wide package manager is
+involved. That keeps the install reproducible on a machine you do not
+administer, and keeps it from colliding with whatever Python is already
+there.
 
 ## The install
 
