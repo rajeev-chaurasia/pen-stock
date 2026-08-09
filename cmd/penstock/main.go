@@ -103,34 +103,8 @@ func run() error {
 		ingress.WithInflightLimit(cfg.Server.MaxInflight),
 	)
 
-	readTimeout := time.Duration(cfg.Server.ReadTimeoutMS) * time.Millisecond
-	srv := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           withSpan(gateway.Handler()),
-		ReadHeaderTimeout: readTimeout,
-		ReadTimeout:       readTimeout,
-		IdleTimeout:       idleConnTimeout,
-		// No WriteTimeout: it would sever long lived SSE streams. Stream
-		// liveness is enforced per write via StreamIdleTimeoutMS instead.
-	}
-
-	// Metrics carry token spend and latency profiles, which is operator
-	// data rather than caller data, so they get their own listener.
-	adminMux := http.NewServeMux()
-	adminMux.Handle("GET /metrics", metrics.Handler())
-	// The metrics pattern is more specific and keeps winning; everything
-	// else falls through to the tenant API, which answers a JSON 404 for
-	// paths it does not know rather than an HTML default.
-	if h := accounting.adminHandler(); h != nil {
-		adminMux.Handle("/", h)
-	}
-	adminSrv := &http.Server{
-		Addr:              cfg.Server.AdminListen,
-		Handler:           adminMux,
-		ReadHeaderTimeout: readTimeout,
-		ReadTimeout:       readTimeout,
-		IdleTimeout:       idleConnTimeout,
-	}
+	srv := gatewayServer(cfg, gateway)
+	adminSrv := adminServer(cfg, metrics, accounting)
 
 	log.Info("penstock starting",
 		"listen", cfg.Server.Listen,
@@ -145,6 +119,52 @@ func run() error {
 		log.Warn("no client_keys configured, every caller reaching this listener spends the configured provider keys")
 	}
 
+	return serve(ctx, log, srv, adminSrv)
+}
+
+// gatewayServer is the listener callers reach.
+func gatewayServer(cfg *config.Config, gateway *ingress.Server) *http.Server {
+	readTimeout := time.Duration(cfg.Server.ReadTimeoutMS) * time.Millisecond
+	return &http.Server{
+		Addr:              cfg.Server.Listen,
+		Handler:           withSpan(gateway.Handler()),
+		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleConnTimeout,
+		// No WriteTimeout: it would sever long lived SSE streams. Stream
+		// liveness is enforced per write via StreamIdleTimeoutMS instead.
+	}
+}
+
+// adminServer carries token spend and latency profiles, which is
+// operator data rather than caller data, so it gets its own listener.
+func adminServer(cfg *config.Config, metrics *obs.Metrics, accounting *accounting) *http.Server {
+	readTimeout := time.Duration(cfg.Server.ReadTimeoutMS) * time.Millisecond
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	// The metrics pattern is more specific and keeps winning; everything
+	// else falls through to the tenant API, which answers a JSON 404 for
+	// paths it does not know rather than an HTML default.
+	if h := accounting.adminHandler(); h != nil {
+		mux.Handle("/", h)
+	}
+
+	return &http.Server{
+		Addr:              cfg.Server.AdminListen,
+		Handler:           mux,
+		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleConnTimeout,
+	}
+}
+
+// serve runs both listeners until one fails or a signal arrives.
+//
+// The admin listener drains first: it is the one an operator is reading,
+// and shutting it last would keep answering questions about a gateway
+// that had already stopped serving.
+func serve(ctx context.Context, log *slog.Logger, srv, adminSrv *http.Server) error {
 	errCh := make(chan error, 2)
 	go func() { errCh <- srv.ListenAndServe() }()
 	go func() { errCh <- adminSrv.ListenAndServe() }()
