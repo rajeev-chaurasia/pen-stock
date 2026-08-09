@@ -1,27 +1,28 @@
 $ # the tenant is capped at 3 requests per minute
-$ for i in 1 2 3 4 5; do
->   curl -s -o /dev/null -w "request $i: HTTP %{http_code}" ... -D /tmp/h
->   grep -i retry-after /tmp/h
+$ for i in 1 2 3; do
+>   curl -s -o /dev/null -w "request: HTTP %{http_code}" ... -D /tmp/r
+>   grep -i retry-after /tmp/r
 > done
-request 1: HTTP 429  Retry-After: 35
-request 2: HTTP 429  Retry-After: 35
-request 3: HTTP 429  Retry-After: 34
-request 4: HTTP 429  Retry-After: 34
-request 5: HTTP 429  Retry-After: 34
+request: HTTP 200
+request: HTTP 429  Retry-After: 46
+request: HTTP 429  Retry-After: 46
 
 $ # a rate limit says when to come back. an exhausted budget answers 402
 $ # with no Retry-After, because waiting does not refill it.
 
 $ curl -s localhost:9098/metrics | grep denials_total
-penstock_denials_total{reason="request_rate",tenant="demo"} 5
+penstock_denials_total{reason="request_rate",tenant="demo"} 2
 
-$ # cache outcomes are counted too, refusals included
+$ # cache outcomes, over one cacheable question asked twice and four
+$ # requests that asked sampling to vary
 $ curl -s localhost:9098/metrics | grep cache_events_total
-penstock_cache_events_total{event="exact_hit"} 2
-penstock_cache_events_total{event="ineligible"} 2
-penstock_cache_events_total{event="miss"} 2
-penstock_cache_events_total{event="stored"} 2
+penstock_cache_events_total{event="exact_hit"} 1
+penstock_cache_events_total{event="ineligible"} 4
+penstock_cache_events_total{event="miss"} 1
+penstock_cache_events_total{event="stored"} 1
 
-$ # "ineligible" is the two requests that asked sampling to vary. They were
-$ # never cached, which is the point: a temperature above zero means the
-$ # caller asked for a different answer.
+$ # one miss and one store for the first ask, one hit for the repeat.
+$ # "ineligible" is the four requests with a temperature above zero: the
+$ # caller asked for a different answer, so they were never cached. The
+$ # cache is consulted before the budget, so a request later refused by a
+$ # limit still records what the cache thought of it.

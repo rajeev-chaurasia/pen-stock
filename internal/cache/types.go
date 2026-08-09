@@ -81,6 +81,17 @@ type Embedder interface {
 // different things: one means the cache has not seen this yet, the
 // other means policy will never store it, and an operator reading a low
 // hit rate needs to know which.
+//
+// Each event is emitted exactly once, by the tier that observed it. The
+// exact tier owns exact_hit, miss, stored and evicted; the semantic tier
+// owns semantic_hit and its own evicted; Lookup owns only ineligible and
+// embed_failed, which no tier is in a position to see. One callback is
+// wired to all three, so a tier reporting an outcome Lookup also reports
+// counts it twice.
+//
+// A consequence worth knowing before reading a dashboard: a semantic hit
+// is preceded by a miss, because the exact tier genuinely did not have
+// the answer. The hit ratio is exact_hit / (exact_hit + miss).
 type Event string
 
 const (

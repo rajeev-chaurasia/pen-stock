@@ -111,11 +111,26 @@ or budgeted.
 
 ### `penstock_cache_events_total`
 
-Counter. Label: `event`.
+Counter. Label: `event`, one of `exact_hit`, `semantic_hit`, `miss`,
+`stored`, `evicted`, `ineligible`, `embed_failed`.
 
-Registered ahead of the caching phase and **not yet emitted by anything**.
-It will always read zero on this build. Deliberately, no dashboard panel
-plots it: a permanently empty graph teaches operators to ignore panels.
+Each event is emitted once, by the tier that observed it. The exact tier
+owns `exact_hit`, `miss`, `stored` and `evicted`; the semantic tier owns
+`semantic_hit`; the lookup that wraps them owns only `ineligible` and
+`embed_failed`, which neither tier is in a position to see.
+
+Hit ratio is `exact_hit / (exact_hit + miss)`.
+
+Two things to know before reading it. **A semantic hit is preceded by a
+miss**, because the exact tier genuinely did not have the answer, so
+counting semantic hits into the numerator without also counting their
+misses would overstate the ratio. And **`ineligible` is not a miss**: it
+is a request policy will never store, such as one that asked sampling to
+vary, so folding it into the denominator would make the cache look worse
+than it is behaving. The two are separate labels for that reason.
+
+The cache is consulted before the budget, so a request later refused by a
+rate limit still records what the cache thought of it.
 
 ## Panels that do not exist, and why
 
@@ -124,12 +139,8 @@ Worth knowing before you go looking for them.
 - **Cost per tenant per token, or tokens by tenant.**
   `penstock_tokens_total` carries no `tenant` label, so token spend cannot
   be divided by tenant. The ledger can answer this offline.
-- ~~**Cache hit ratio.** The metric is registered but never emitted.~~
-  This was wrong. `penstock_cache_events_total` does emit, verified
-  against a running gateway: `exact_hit`, `miss`, `stored` and
-  `ineligible` all increment, so the hit ratio is
-  `exact_hit / (exact_hit + miss)` and refusals are separable from
-  misses. Corrected after checking rather than rereading.
+- **Cache hit ratio as a shipped dashboard panel.** The metric supports it
+  and the formula is above, but no panel plots it yet.
 - **Load shedding specifically.** A request rejected at `max_inflight`
   surfaces as `code="503"`, mixed in with fail-closed accounting denials.
   Only the denials metric distinguishes the latter.

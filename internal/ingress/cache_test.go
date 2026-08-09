@@ -52,16 +52,21 @@ func newCachedServer(t *testing.T, prov providers.Provider, sink ingress.Metrics
 	t.Helper()
 	var events []cache.Event
 	var mu sync.Mutex
+	// One callback on every tier, the way the binary wires it. The exact
+	// tier reports the hits, misses and stores it alone observes, and the
+	// lookup reports only what no tier can see. Wiring it at the lookup
+	// alone records nothing.
+	record := func(e cache.Event) {
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+		if sink != nil {
+			sink.AddCacheEvent(string(e))
+		}
+	}
 	lookup := cache.NewLookup(cache.LookupOptions{
-		Exact: cache.NewExact(cache.ExactOptions{}),
-		OnEvent: func(e cache.Event) {
-			mu.Lock()
-			events = append(events, e)
-			mu.Unlock()
-			if sink != nil {
-				sink.AddCacheEvent(string(e))
-			}
-		},
+		Exact:   cache.NewExact(cache.ExactOptions{OnEvent: record}),
+		OnEvent: record,
 	})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := []ingress.Option{ingress.WithCache(lookup)}

@@ -243,3 +243,99 @@ func containsEvent(events []Event, want Event) bool {
 	}
 	return false
 }
+
+func countEvents(events []Event) map[Event]int {
+	counts := make(map[Event]int, len(events))
+	for _, e := range events {
+		counts[e]++
+	}
+	return counts
+}
+
+// assertCounts checks the whole event set, not just the events named, so
+// a stray extra event fails rather than passing unnoticed. That is the
+// difference that matters here: every assertion in this file used to ask
+// whether an event was present, which a doubled count answers yes to.
+func assertCounts(t *testing.T, events []Event, want map[Event]int) {
+	t.Helper()
+	got := countEvents(events)
+	for e, n := range want {
+		if got[e] != n {
+			t.Errorf("event %q count = %d, want %d (all events: %v)", e, got[e], n, events)
+		}
+	}
+	for e, n := range got {
+		if _, expected := want[e]; !expected {
+			t.Errorf("unexpected event %q emitted %d times (all events: %v)", e, n, events)
+		}
+	}
+}
+
+// One callback is wired to the exact tier, the semantic tier and the
+// Lookup that owns them. Each tier reports the outcomes it alone can
+// see, so nothing may be reported twice.
+//
+// This shipped doubled: Lookup emitted exact_hit, semantic_hit, miss and
+// stored on top of the tier that had already emitted them, which made
+// penstock_cache_events_total wrong and the published hit ratio wrong
+// with it. It survived because every assertion asked whether an event
+// was present rather than how often.
+func TestEachCacheEventIsCountedOnce(t *testing.T) {
+	ctx := context.Background()
+	const paraphrase = `{"model":"m","temperature":0,"messages":[{"role":"user","content":"describe a penstock please"}]}`
+
+	t.Run("miss then store", func(t *testing.T) {
+		var events []Event
+		l := newLookup(t, nil, &events)
+
+		res := l.Get(ctx, "acme", "m", []byte(cacheableBody))
+		l.Put(ctx, res, &Entry{Body: []byte(`{"ok":true}`)}, []byte(cacheableBody))
+
+		assertCounts(t, events, map[Event]int{EventMiss: 1, EventStored: 1})
+	})
+
+	t.Run("exact hit", func(t *testing.T) {
+		var events []Event
+		l := newLookup(t, nil, &events)
+
+		res := l.Get(ctx, "acme", "m", []byte(cacheableBody))
+		l.Put(ctx, res, &Entry{Body: []byte(`{"ok":true}`)}, []byte(cacheableBody))
+		events = nil
+
+		if hit := l.Get(ctx, "acme", "m", []byte(cacheableBody)); hit.Entry == nil {
+			t.Fatal("the repeat did not hit")
+		}
+		assertCounts(t, events, map[Event]int{EventExactHit: 1})
+	})
+
+	t.Run("semantic hit is preceded by one miss", func(t *testing.T) {
+		var events []Event
+		emb := &stubEmbedder{vec: []float32{0, 1, 0}}
+		l := newLookup(t, emb, &events)
+
+		res := l.Get(ctx, "acme", "m", []byte(cacheableBody))
+		l.Put(ctx, res, &Entry{Body: []byte(`{"answer":"a pipe"}`)}, []byte(cacheableBody))
+		events = nil
+
+		hit := l.Get(ctx, "acme", "m", []byte(paraphrase))
+		if hit.Entry == nil || !hit.Semantic {
+			t.Fatal("the paraphrase did not reach the semantic tier")
+		}
+		// The miss is real: the exact tier genuinely did not have it.
+		assertCounts(t, events, map[Event]int{EventMiss: 1, EventSemanticHit: 1})
+	})
+
+	t.Run("ineligible refuses without counting a miss", func(t *testing.T) {
+		var events []Event
+		l := newLookup(t, nil, &events)
+
+		// A temperature above the ceiling asked for variety, so it is
+		// refused rather than looked up. Counting a miss here would make
+		// the hit ratio look worse than the cache is behaving.
+		hot := `{"model":"m","temperature":1,"messages":[{"role":"user","content":"hi"}]}`
+		if res := l.Get(ctx, "acme", "m", []byte(hot)); res.Eligible {
+			t.Fatal("a hot request was treated as cacheable")
+		}
+		assertCounts(t, events, map[Event]int{EventIneligible: 1})
+	})
+}

@@ -80,21 +80,20 @@ func (l *Lookup) Get(ctx context.Context, tenant, model string, raw []byte) Resu
 	}
 	res := Result{Key: key, Eligible: true}
 
+	// The tiers report their own outcomes. Emitting here as well is what
+	// made every count double.
 	if entry, ok := l.exact.Get(ctx, key); ok {
-		l.emit(EventExactHit)
 		res.Entry = entry
 		return res
 	}
 
 	if entry, sim, ok := l.nearest(ctx, tenant, raw); ok {
-		l.emit(EventSemanticHit)
 		res.Entry = entry
 		res.Semantic = true
 		res.Similarity = sim
 		return res
 	}
 
-	l.emit(EventMiss)
 	return res
 }
 
@@ -125,7 +124,6 @@ func (l *Lookup) Put(ctx context.Context, res Result, entry *Entry, raw []byte) 
 		return
 	}
 	l.exact.Put(ctx, res.Key, entry)
-	l.emit(EventStored)
 
 	if l.semantic == nil || l.embedder == nil {
 		return
