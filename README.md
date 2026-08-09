@@ -72,6 +72,56 @@ than the live service.
   switching providers would splice two different answers together, so a
   mid-stream failure surfaces as truncation instead.
 
+## How a request flows
+
+```mermaid
+flowchart TD
+    CLIENT[Client SDK]
+    LISTEN[Proxy listener]
+    GATE[Auth and in-flight cap]
+    CACHE[Cache lookup]
+    BUDGET[Budget guard]
+    ROUTER[Router]
+    ADAPTER[Provider adapters]
+    UPSTREAM[Provider APIs]
+    LEDGER[(Cost ledger)]
+
+    CLIENT -->|chat request| LISTEN
+    LISTEN --> GATE
+    GATE -->|key to tenant| CACHE
+    CACHE -->|hit| CLIENT
+    CACHE -->|miss| BUDGET
+    BUDGET -->|reserved| ROUTER
+    ROUTER -->|chosen| ADAPTER
+    ADAPTER --> UPSTREAM
+    UPSTREAM -->|usage| BUDGET
+    BUDGET -->|settled| LEDGER
+
+    classDef client fill:#dbeafe,stroke:#1e40af,color:#1e3a8a
+    classDef gateway fill:#e2e8f0,stroke:#334155,color:#0f172a
+    classDef policy fill:#fde68a,stroke:#b45309,color:#78350f
+    classDef adapter fill:#bbf7d0,stroke:#15803d,color:#14532d
+    classDef external fill:#e9d5ff,stroke:#6b21a8,color:#4c1d95
+    classDef storage fill:#fecdd3,stroke:#9f1239,color:#881337
+
+    class CLIENT client
+    class LISTEN,ROUTER gateway
+    class GATE,CACHE,BUDGET policy
+    class ADAPTER adapter
+    class UPSTREAM external
+    class LEDGER storage
+```
+
+Two orderings in that picture are deliberate. The cache is consulted
+before the budget, so an answer already paid for is not charged twice.
+The budget reserves an estimate before the upstream call and settles
+the truth after, so a cap is enforced before the money is spent rather
+than discovered afterwards.
+
+[docs/architecture.md](docs/architecture.md) covers the package map and
+the failure model; [docs/request-lifecycle.md](docs/request-lifecycle.md)
+walks a single request through both transports step by step.
+
 ## Quickstart
 
 ```
@@ -113,7 +163,26 @@ A rate limit answers 429 with a Retry-After. An exhausted budget answers
 Each settled request appends a ledger row carrying the tenant, model,
 tokens, cost and the price list version that produced it, so a figure
 can be rechecked later rather than taken on faith. `GET /admin/tenants`
-on the admin listener reports live balances.
+on the admin listener reports live balances, and the two agree:
+
+```
+$ tail -1 penstock-ledger.jsonl
+{"tenant":"demo","provider_kind":"groq","model":"llama-3.3-70b-versatile",
+ "prompt_tokens":43,"completion_tokens":60,"usd":0.00007277,"price_version":1,
+ "cache_hit":false,"request_id":"1"}
+
+$ curl -s localhost:9090/admin/tenants/demo
+{"name":"demo","limits":{"requests_per_minute":60,"daily_usd":1,"fail_closed":true},
+ "daily_spent_usd":0.00007277,"daily_remaining_usd":0.99992723}
+```
+
+That figure is 43 prompt tokens and 60 completion tokens at the Groq
+rate, and it is exact. It read `0.00` until very late: pricing looked
+the vendor and model up from the *routed* name, while the price table
+is keyed by the real one, so any aliased route, which is what a
+fallback chain across vendors requires, missed the table and priced at
+zero. A zero never trips a USD budget, so the cap silently did not
+exist. It was found by taking this screenshot.
 
 Note that many entries in the shipped price table are marked
 `# unverified`. The arithmetic is exact and the ledger reconciles with
@@ -125,8 +194,23 @@ before trusting the absolute numbers.
 Repeated questions are answered without calling a provider. The exact
 tier canonicalizes a request first, so key order and whitespace cannot
 cause a spurious miss, while a streaming and a whole answer to the same
-question share one entry. Measured live, a repeat returned in 166ms
-against 694ms upstream.
+question share one entry.
+
+Live against Groq, the same question twice:
+
+```
+$ curl -s -w "\n  upstream call: %{time_total}s\n" localhost:8080/v1/chat/completions ...
+"content":"The longest river in Africa is the Nile River, which stretches approximately 6,6
+  upstream call: 0.213882s
+
+$ # ask the identical question again
+X-Penstock-Cache: hit-exact
+  cached:        0.019797s
+```
+
+The 20ms is the number that means something: it is the gateway's own
+cost to recognise and replay an answer. The 214ms is one sample of one
+provider on one day and will move around.
 
 What is never cached is the more important half: sampling asked to
 vary, tool calls whose answer is an instruction to act, and anything
@@ -147,15 +231,24 @@ it is meaningless. This is the false hit rate.
 
 ## Measured
 
-On one machine against a simulated upstream calibrated from real Groq
-traffic, 2400 samples per arm:
+Against a simulated upstream calibrated from real Groq traffic, 2400
+samples per arm. **These are the Linux numbers**, because that is the
+only place the comparison is fair:
 
 | | added latency, mean |
 |---|---|
-| Penstock | **0.81 ms** |
-| LiteLLM 1.95.0 | **13.62 ms** |
+| Penstock | **1.0 ms** |
+| LiteLLM 1.95.0 | **12.1 ms** |
 
-Two things that table does not say, and both matter.
+The first run of this was on Windows, where LiteLLM cannot load uvloop
+at all. Comparing a Go binary against a Python proxy denied its event
+loop is not a comparison, it is a handicap, so the whole campaign was
+rerun on Linux and uvloop was confirmed active in the running process
+rather than merely installed. It bought LiteLLM about 1.5 ms of its
+13.6. That is a real improvement, and it does not close the gap. The
+Windows figures are still in the docs; these are the ones to quote.
+
+Two things the table does not say, and both matter.
 
 Penstock's p95 and p99 deltas fall **below this harness's noise floor**,
 which a null comparison of two identical arms puts at 0.96 ms. Its tail
@@ -166,21 +259,41 @@ a measurement.
 Penstock is not faster because it is better engineered. It is faster
 because it does less: LiteLLM counts tokens, computes cost, dispatches
 callbacks and guardrails, and routes across far more providers. Some of
-its cost is features this gateway does not have. Windows also penalises
-it specifically, since uvloop does not run here at all.
+that cost buys features this gateway does not have.
 
-Full method, every caveat, and the runs that were discarded are in
-[docs/comparison.md](docs/comparison.md). Raw k6 output is committed
-beside the summaries in [bench/results/](bench/results/).
+Full method, every caveat, the uvloop evidence, and the runs that were
+discarded are in [docs/comparison.md](docs/comparison.md). Raw k6 output
+is committed beside the summaries in [bench/results/](bench/results/).
 
 ## Status
 
-Phases 0 through 4 are done: ingress and streaming, the provider
-adapters, routing, per-tenant cost control, and caching. The benchmark
-campaign is in progress: `cmd/calibrate` records real provider latency
-into the profiles llmsim replays, and the k6 harness lives in
-[bench/](bench/). No performance numbers are published yet, and none
-should be believed until they are reproducible from that harness.
+Ingress and streaming, the provider adapters, routing and fallback,
+per-tenant cost control, and caching are done and exercised against
+real provider APIs. The benchmark campaign is complete on both
+platforms: `cmd/calibrate` records real provider latency into the
+profiles llmsim replays, the k6 harness lives in [bench/](bench/), and
+every number quoted above is reproducible from it.
+
+What is deliberately not here: tenant state is in memory, so a restart
+forgets every window; there is no TLS, key rotation, or multi-node
+story; and the router's attempt budget, backoff and breaker thresholds
+run on package defaults with no config surface. See
+[docs/architecture.md](docs/architecture.md) for where those edges are.
+
+## Documentation
+
+Start at [docs/index.md](docs/index.md). The pages worth reading on
+their own:
+
+| Page | What it answers |
+|---|---|
+| [architecture.md](docs/architecture.md) | How the packages fit together and which way the dependencies point |
+| [request-lifecycle.md](docs/request-lifecycle.md) | What happens to one request, on both transports |
+| [configuration.md](docs/configuration.md) | Every config field and what happens when you omit it |
+| [cost-accounting.md](docs/cost-accounting.md) | How an estimate becomes a settled, auditable row |
+| [cache-quality.md](docs/cache-quality.md) | The 257-probe semantic sweep, including the result that killed the feature |
+| [comparison.md](docs/comparison.md) | Full benchmark method, the uvloop evidence, and the discarded runs |
+| [adr/](docs/adr/) | The decisions, with what each one cost |
 
 ## License
 
