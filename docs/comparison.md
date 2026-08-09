@@ -148,6 +148,17 @@ most valuable thing anyone could do to it. This section is that rerun.
 It is the honest correction to the table above, and the table above is
 left in place so the two can be compared.
 
+![Added latency for Penstock and LiteLLM at mean, p50, p95 and p99,
+each against the noise floor of the same run. Every LiteLLM figure sits
+far outside the floor; Penstock's tail deltas sit inside
+it.](img/gateway-overhead.svg)
+
+The grey band on each row is that statistic's noise floor, taken from
+the two identical direct arms of the same run. It is drawn symmetric
+about zero because it is a magnitude and carries no direction. A bar
+that does not clear its own band is not a measurement, which is why
+Penstock's p95 is labelled rather than quoted.
+
 The handicap is worse than "an optional accelerator was missing".
 LiteLLM 1.95.0 branches on the platform inside its own launcher:
 

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="400" viewBox="0 0 700 400" role="img">
+  <title>Gateway overhead against the measurement noise floor</title>
+  <desc>Added latency per request for Penstock and LiteLLM at four statistics, each beside the noise floor of the same run. Mean overhead was +1.02 ms for Penstock and +12.14 ms for LiteLLM against a floor of 0.39 ms. Every LiteLLM figure is far outside the floor; Penstock's tail deltas are inside it and are not resolvable by this harness.</desc>
+  <style>
+    text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .ink { fill: #757575; }
+    .rule { stroke: #757575; stroke-opacity: 0.30; stroke-width: 1; fill: none; }
+    .axis { stroke: #757575; stroke-opacity: 0.75; stroke-width: 1; fill: none; }
+    .band { fill: #757575; fill-opacity: 0.16; }
+    .lead { stroke: #757575; stroke-opacity: 0.55; stroke-width: 1; fill: none; }
+    .mark { stroke: #757575; stroke-opacity: 0.60; stroke-width: 1.25;
+            stroke-dasharray: 4 3; fill: none; }
+    .right { fill: #0072B2; }
+    .right-line { stroke: #0072B2; stroke-width: 2.2; fill: none;
+                  stroke-linejoin: round; stroke-linecap: round; }
+    .wrong { fill: #D55E00; }
+    .wrong-line { stroke: #D55E00; stroke-width: 2.2; fill: none; stroke-dasharray: 7 4;
+                  stroke-linejoin: round; stroke-linecap: round; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #C9D1D9; }
+      .rule { stroke: #C9D1D9; stroke-opacity: 0.24; }
+      .axis { stroke: #C9D1D9; stroke-opacity: 0.62; }
+      .band { fill: #C9D1D9; fill-opacity: 0.14; }
+      .lead { stroke: #C9D1D9; stroke-opacity: 0.50; }
+      .mark { stroke: #C9D1D9; stroke-opacity: 0.55; }
+      .right, .right-line { fill: #56B4E9; }
+      .right-line { stroke: #56B4E9; fill: none; }
+      .wrong, .wrong-line { fill: #E69F00; }
+      .wrong-line { stroke: #E69F00; fill: none; }
+    }
+  </style>
+  <text x="14" y="26" font-size="16" font-weight="600" text-anchor="start" class="ink">LiteLLM adds about 12 ms per request, Penstock about 1 ms</text>
+  <text x="14" y="46" font-size="12" font-weight="400" text-anchor="start" class="ink">Linux, LiteLLM 1.95.0 on uvicorn with uvloop confirmed loaded. 2400 samples per arm at 20 requests/s.</text>
+  <line x1="167.78" y1="82" x2="167.78" y2="282" class="axis"/>
+  <text x="167.78" y="302" font-size="12" font-weight="400" text-anchor="middle" class="ink">0</text>
+  <line x1="267.33" y1="82" x2="267.33" y2="282" class="rule"/>
+  <text x="267.33" y="302" font-size="12" font-weight="400" text-anchor="middle" class="ink">4</text>
+  <line x1="366.89" y1="82" x2="366.89" y2="282" class="rule"/>
+  <text x="366.89" y="302" font-size="12" font-weight="400" text-anchor="middle" class="ink">8</text>
+  <line x1="466.44" y1="82" x2="466.44" y2="282" class="rule"/>
+  <text x="466.44" y="302" font-size="12" font-weight="400" text-anchor="middle" class="ink">12</text>
+  <line x1="566" y1="82" x2="566" y2="282" class="rule"/>
+  <text x="566" y="302" font-size="12" font-weight="400" text-anchor="middle" class="ink">16</text>
+  <text x="342" y="322" font-size="12.5" font-weight="400" text-anchor="middle" class="ink">added latency vs no gateway (ms)</text>
+  <rect x="157.98" y="87" width="19.6" height="40" class="band"/>
+  <text x="104" y="103" font-size="12" font-weight="600" text-anchor="end" class="ink">mean</text>
+  <text x="104" y="120" font-size="11" font-weight="400" text-anchor="end" class="ink">floor 0.39 ms</text>
+  <rect x="167.78" y="89" width="25.49" height="15" class="right"/>
+  <text x="201.27" y="100.5" font-size="12.5" font-weight="400" text-anchor="start" class="right">Penstock +1.02 ms</text>
+  <rect x="167.78" y="110" width="302.12" height="15" class="wrong"/>
+  <text x="477.9" y="121.5" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">LiteLLM +12.14 ms</text>
+  <rect x="149.62" y="137" width="36.32" height="40" class="band"/>
+  <text x="104" y="153" font-size="12" font-weight="600" text-anchor="end" class="ink">p50</text>
+  <text x="104" y="170" font-size="11" font-weight="400" text-anchor="end" class="ink">floor 0.73 ms</text>
+  <rect x="167.78" y="139" width="24.63" height="15" class="right"/>
+  <text x="200.41" y="150.5" font-size="12.5" font-weight="400" text-anchor="start" class="right">Penstock +0.99 ms</text>
+  <rect x="167.78" y="160" width="307.23" height="15" class="wrong"/>
+  <text x="483.01" y="171.5" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">LiteLLM +12.34 ms</text>
+  <rect x="142.27" y="187" width="51.02" height="40" class="band"/>
+  <text x="104" y="203" font-size="12" font-weight="600" text-anchor="end" class="ink">p95</text>
+  <text x="104" y="220" font-size="11" font-weight="400" text-anchor="end" class="ink">floor 1.02 ms</text>
+  <rect x="167.1" y="189" width="0.68" height="15" class="right"/>
+  <text x="175.78" y="200.5" font-size="12.5" font-weight="400" text-anchor="start" class="right">Penstock -0.03 ms (below the noise floor)</text>
+  <rect x="167.78" y="210" width="350.59" height="15" class="wrong"/>
+  <text x="526.37" y="221.5" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">LiteLLM +14.09 ms</text>
+  <rect x="147.48" y="237" width="40.59" height="40" class="band"/>
+  <text x="104" y="253" font-size="12" font-weight="600" text-anchor="end" class="ink">p99</text>
+  <text x="104" y="270" font-size="11" font-weight="400" text-anchor="end" class="ink">floor 0.82 ms</text>
+  <rect x="167.78" y="239" width="42.09" height="15" class="right"/>
+  <text x="217.87" y="250.5" font-size="12.5" font-weight="400" text-anchor="start" class="right">Penstock +1.69 ms</text>
+  <rect x="167.78" y="260" width="317.29" height="15" class="wrong"/>
+  <text x="493.06" y="271.5" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">LiteLLM +12.75 ms</text>
+  <text x="14" y="344" font-size="11" font-weight="400" text-anchor="start" class="ink">Grey band is this run's own noise floor: the gap between two identical no-gateway arms of the same run.</text>
+  <text x="14" y="360" font-size="11" font-weight="400" text-anchor="start" class="ink">Percentile rows are differences of quantiles. Only the mean row is exactly the mean per request overhead.</text>
+  <text x="14" y="376" font-size="11" font-weight="400" text-anchor="start" class="ink">Source: bench/results/compare-linux-uvicorn-w1-20260807T011936Z.summary.json. Caveats: docs/comparison.md</text>
+</svg>

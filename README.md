@@ -248,9 +248,19 @@ cannot surface in another's response.
 The semantic tier, which answers a question similar to one already
 asked, is off by default. Over 257 labelled probes, questions with
 opposite meanings scored higher than genuine paraphrases often enough
-that no threshold separates them: at the 0.95 floor the gateway ships,
-44 percent of semantic hits answered a question with the opposite
-meaning. The full sweep is in [docs/cache-quality.md](docs/cache-quality.md),
+that no threshold separates them:
+
+![Correct hits on paraphrases against false hits on opposites, across
+20 similarity thresholds. The two curves never separate, and past 0.92
+the false hit rate is the higher of the
+two.](docs/img/cache-threshold-sweep.svg)
+
+Read the crossover. Above roughly 0.92 a raised threshold rejects
+genuine paraphrases faster than it rejects opposites, so the knob meant
+to make the feature safer makes it worse. At the 0.95 floor the gateway
+ships, paraphrases hit 24 percent of the time and opposites hit
+**43.9** percent: a semantic hit there is more likely to be answering
+the wrong question than the right one. The full sweep is in [docs/cache-quality.md](docs/cache-quality.md),
 reproducible with `cmd/cachestudy`, and the short version is in
 [docs/semantic-caching.md](docs/semantic-caching.md).
 
@@ -275,6 +285,11 @@ rerun on Linux and uvloop was confirmed active in the running process
 rather than merely installed. It bought LiteLLM about 1.5 ms of its
 13.6. That is a real improvement, and it does not close the gap. The
 Windows figures are still in the docs; these are the ones to quote.
+
+![Added latency for Penstock and LiteLLM at mean, p50, p95 and p99, each
+against the noise floor of the same run. Every LiteLLM figure sits far
+outside the floor; Penstock's tail deltas sit inside
+it.](docs/img/gateway-overhead.svg)
 
 Two things the table does not say, and both matter.
 

@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="430" viewBox="0 0 700 430" role="img">
+  <title>Semantic cache hit rate against false hit rate, by similarity threshold</title>
+  <desc>Two curves over cosine similarity thresholds 0.80 to 0.99. The false hit rate on opposite-meaning questions runs level with or above the correct hit rate on paraphrases across most of the range, so no threshold separates them. At the shipped floor of 0.95 the tier serves 44% of opposites from cache and 24% of paraphrases.</desc>
+  <style>
+    text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .ink { fill: #757575; }
+    .rule { stroke: #757575; stroke-opacity: 0.30; stroke-width: 1; fill: none; }
+    .axis { stroke: #757575; stroke-opacity: 0.75; stroke-width: 1; fill: none; }
+    .band { fill: #757575; fill-opacity: 0.16; }
+    .lead { stroke: #757575; stroke-opacity: 0.55; stroke-width: 1; fill: none; }
+    .mark { stroke: #757575; stroke-opacity: 0.60; stroke-width: 1.25;
+            stroke-dasharray: 4 3; fill: none; }
+    .right { fill: #0072B2; }
+    .right-line { stroke: #0072B2; stroke-width: 2.2; fill: none;
+                  stroke-linejoin: round; stroke-linecap: round; }
+    .wrong { fill: #D55E00; }
+    .wrong-line { stroke: #D55E00; stroke-width: 2.2; fill: none; stroke-dasharray: 7 4;
+                  stroke-linejoin: round; stroke-linecap: round; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #C9D1D9; }
+      .rule { stroke: #C9D1D9; stroke-opacity: 0.24; }
+      .axis { stroke: #C9D1D9; stroke-opacity: 0.62; }
+      .band { fill: #C9D1D9; fill-opacity: 0.14; }
+      .lead { stroke: #C9D1D9; stroke-opacity: 0.50; }
+      .mark { stroke: #C9D1D9; stroke-opacity: 0.55; }
+      .right, .right-line { fill: #56B4E9; }
+      .right-line { stroke: #56B4E9; fill: none; }
+      .wrong, .wrong-line { fill: #E69F00; }
+      .wrong-line { stroke: #E69F00; fill: none; }
+    }
+  </style>
+  <text x="14" y="26" font-size="16" font-weight="600" text-anchor="start" class="ink">No similarity threshold separates a paraphrase from its opposite</text>
+  <text x="14" y="46" font-size="12" font-weight="400" text-anchor="start" class="ink">257 labelled probes over 50 question groups, embedded with gemini-embedding-001 (3072 dimensions)</text>
+  <text x="14" y="72" font-size="12.5" font-weight="400" text-anchor="start" class="ink">cache hit rate (% of that group's probes)</text>
+  <line x1="62" y1="352" x2="674" y2="352" class="rule"/>
+  <text x="54" y="356" font-size="12" font-weight="400" text-anchor="end" class="ink">0</text>
+  <line x1="62" y1="300.8" x2="674" y2="300.8" class="rule"/>
+  <text x="54" y="304.8" font-size="12" font-weight="400" text-anchor="end" class="ink">20</text>
+  <line x1="62" y1="249.6" x2="674" y2="249.6" class="rule"/>
+  <text x="54" y="253.6" font-size="12" font-weight="400" text-anchor="end" class="ink">40</text>
+  <line x1="62" y1="198.4" x2="674" y2="198.4" class="rule"/>
+  <text x="54" y="202.4" font-size="12" font-weight="400" text-anchor="end" class="ink">60</text>
+  <line x1="62" y1="147.2" x2="674" y2="147.2" class="rule"/>
+  <text x="54" y="151.2" font-size="12" font-weight="400" text-anchor="end" class="ink">80</text>
+  <line x1="62" y1="96" x2="674" y2="96" class="rule"/>
+  <text x="54" y="100" font-size="12" font-weight="400" text-anchor="end" class="ink">100</text>
+  <line x1="62" y1="352" x2="674" y2="352" class="axis"/>
+  <text x="62" y="372" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.80</text>
+  <text x="223.05" y="372" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.85</text>
+  <text x="384.11" y="372" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.90</text>
+  <text x="545.16" y="372" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.95</text>
+  <text x="674" y="372" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.99</text>
+  <text x="368" y="392" font-size="12.5" font-weight="400" text-anchor="middle" class="ink">cosine similarity threshold</text>
+  <line x1="545.16" y1="84" x2="545.16" y2="352" class="mark"/>
+  <text x="545.16" y="78" font-size="12" font-weight="400" text-anchor="middle" class="ink">0.95, the floor Penstock enforces</text>
+  <polyline points="62,96 94.21,96 126.42,96 158.63,96 190.84,96 223.05,101.12 255.26,106.24 287.47,116.48 319.68,124.16 351.89,129.28 384.11,136.96 416.32,157.44 448.53,193.28 480.74,229.12 512.95,259.84 545.16,290.56 577.37,331.52 609.58,336.64 641.79,349.44 674,352" class="right-line"/>
+  <polyline points="62,96 94.21,96 126.42,96 158.63,96 190.84,96 223.05,96 255.26,104.98 287.47,109.47 319.68,118.46 351.89,131.93 384.11,145.4 416.32,172.35 448.53,176.84 480.74,190.32 512.95,208.28 545.16,239.72 577.37,271.16 609.58,289.12 641.79,311.58 674,347.51" class="wrong-line"/>
+  <rect x="58.6" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="90.81" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="123.02" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="155.23" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="187.44" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="219.65" y="92.6" width="6.8" height="6.8" class="wrong"/>
+  <rect x="251.86" y="101.58" width="6.8" height="6.8" class="wrong"/>
+  <rect x="284.07" y="106.07" width="6.8" height="6.8" class="wrong"/>
+  <rect x="316.28" y="115.06" width="6.8" height="6.8" class="wrong"/>
+  <rect x="348.49" y="128.53" width="6.8" height="6.8" class="wrong"/>
+  <rect x="380.71" y="142" width="6.8" height="6.8" class="wrong"/>
+  <rect x="412.92" y="168.95" width="6.8" height="6.8" class="wrong"/>
+  <rect x="445.13" y="173.44" width="6.8" height="6.8" class="wrong"/>
+  <rect x="477.34" y="186.92" width="6.8" height="6.8" class="wrong"/>
+  <rect x="509.55" y="204.88" width="6.8" height="6.8" class="wrong"/>
+  <rect x="541.76" y="236.32" width="6.8" height="6.8" class="wrong"/>
+  <rect x="573.97" y="267.76" width="6.8" height="6.8" class="wrong"/>
+  <rect x="606.18" y="285.72" width="6.8" height="6.8" class="wrong"/>
+  <rect x="638.39" y="308.18" width="6.8" height="6.8" class="wrong"/>
+  <rect x="670.6" y="344.11" width="6.8" height="6.8" class="wrong"/>
+  <circle cx="62" cy="96" r="3.4" class="right"/>
+  <circle cx="94.21" cy="96" r="3.4" class="right"/>
+  <circle cx="126.42" cy="96" r="3.4" class="right"/>
+  <circle cx="158.63" cy="96" r="3.4" class="right"/>
+  <circle cx="190.84" cy="96" r="3.4" class="right"/>
+  <circle cx="223.05" cy="101.12" r="3.4" class="right"/>
+  <circle cx="255.26" cy="106.24" r="3.4" class="right"/>
+  <circle cx="287.47" cy="116.48" r="3.4" class="right"/>
+  <circle cx="319.68" cy="124.16" r="3.4" class="right"/>
+  <circle cx="351.89" cy="129.28" r="3.4" class="right"/>
+  <circle cx="384.11" cy="136.96" r="3.4" class="right"/>
+  <circle cx="416.32" cy="157.44" r="3.4" class="right"/>
+  <circle cx="448.53" cy="193.28" r="3.4" class="right"/>
+  <circle cx="480.74" cy="229.12" r="3.4" class="right"/>
+  <circle cx="512.95" cy="259.84" r="3.4" class="right"/>
+  <circle cx="545.16" cy="290.56" r="3.4" class="right"/>
+  <circle cx="577.37" cy="331.52" r="3.4" class="right"/>
+  <circle cx="609.58" cy="336.64" r="3.4" class="right"/>
+  <circle cx="641.79" cy="349.44" r="3.4" class="right"/>
+  <circle cx="674" cy="352" r="3.4" class="right"/>
+  <text x="440" y="130" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">opposite meaning (wrong answers)</text>
+  <line x1="462" y1="137" x2="466" y2="184" class="lead"/>
+  <text x="390" y="294" font-size="12.5" font-weight="400" text-anchor="end" class="right">paraphrase (right answers)</text>
+  <line x1="394" y1="290" x2="495" y2="244" class="lead"/>
+  <text x="553.16" y="228" font-size="12.5" font-weight="400" text-anchor="start" class="wrong">44% of opposites</text>
+  <text x="537.16" y="305" font-size="12.5" font-weight="400" text-anchor="end" class="right">24% of paraphrases</text>
+  <text x="14" y="414" font-size="11" font-weight="400" text-anchor="start" class="ink">Source: bench/results/cache-study-20260806T233311Z.json. Method and caveats: docs/cache-quality.md</text>
+</svg>

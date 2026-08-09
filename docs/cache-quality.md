@@ -161,6 +161,17 @@ threshold from 0.80 to 0.99. Each hit is scored by which group's answer
 came back, so a hit on another group's entry counts as false even when
 the label would otherwise allow one.
 
+![Correct hits on paraphrases against false hits on opposites, across
+20 similarity thresholds. The curves never separate, and past 0.92 the
+false hit rate is the higher of the
+two.](img/cache-threshold-sweep.svg)
+
+The figure plots two columns of the table below, unsmoothed. What to
+look for is not the height of either curve but the fact that they never
+part, and that past about 0.92 they cross the wrong way: raising the
+threshold sheds genuine paraphrases faster than it sheds opposites.
+There is no setting where the feature is merely conservative.
+
 | Threshold | Repeat hit | Paraphrase hit | **Opposite FALSE** | Unrelated false | Margin | Wrong tokens |
 |---|---|---|---|---|---|---|
 | 0.80 | 100.0% | 100.0% | **100.0%** | 2.0% | +0.0pp | 35.8% |
