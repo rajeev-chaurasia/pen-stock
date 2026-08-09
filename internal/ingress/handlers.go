@@ -210,29 +210,15 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 		defer headerTimer.Stop()
 	}
 
-	reader, err := prov.ChatStream(ctx, req)
+	reader, err := openStream(ctx, prov, req, &headerTimedOut)
 	if err != nil {
 		s.settleOrAbort(r.Context(), reservation, nil, req.Model, prov.Name())
-		if headerTimedOut.Load() {
-			err = &providers.ProviderError{
-				Provider: prov.Name(),
-				Class:    providers.ErrClassTimeout,
-				Message:  "upstream did not send response headers in time",
-				Err:      err,
-			}
-		}
 		s.writeUpstreamError(w, err)
 		return
 	}
 	defer func() { _ = reader.Close() }()
 
-	h := w.Header()
-	h.Set("Content-Type", contentTypeSSE)
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Connection", "keep-alive")
-	h.Set("X-Content-Type-Options", headerNoSniff)
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+	writeSSEHeaders(w, flusher)
 
 	results := make(chan recvResult)
 	go pumpStream(ctx, reader, results)
@@ -247,42 +233,15 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 	}
 
 	info := logInfoFrom(r.Context())
-	answered := answeringProvider(prov.Name(), providerOfStream(reader))
-	billed := billedModel(req.Model, modelOfStream(reader))
-	info.provider = answered
+	tally := &streamTally{
+		answered: answeringProvider(prov.Name(), providerOfStream(reader)),
+		billed:   billedModel(req.Model, modelOfStream(reader)),
+	}
+	info.provider = tally.answered
 	rc := http.NewResponseController(w)
 	firstData := true
 
-	// Frames are collected so a completed stream can be replayed later.
-	// Only a stream that finished cleanly is stored: see the [DONE]
-	// branch below.
-	var recorder streamRecorder
-	var completed bool
-
-	// Providers differ on how often they report usage: some send it once
-	// at the end, some repeat cumulative totals on every chunk. Keeping
-	// only the last report and recording it at stream end is correct for
-	// both, where summing would multiply the count.
-	var lastUsage *providers.Usage
-	defer func() {
-		if lastUsage != nil {
-			s.metrics.AddTokens(answered, lastUsage.PromptTokens, lastUsage.CompletionTokens)
-		}
-		if completed {
-			usage := providers.Usage{}
-			if lastUsage != nil {
-				usage = *lastUsage
-			}
-			if entry := recorder.entry(answered, req.Model, &cache.Entry{Usage: usage}); entry != nil {
-				s.cache.Put(context.WithoutCancel(r.Context()), cacheRes, entry, req.Raw)
-			}
-		}
-		// A stream that ended without ever reporting usage produced no
-		// billable evidence, so the claim goes back rather than being
-		// settled at a number nobody measured. Settling on the estimate
-		// instead would bill a guess.
-		s.settleOrAbort(context.WithoutCancel(r.Context()), reservation, lastUsage, billed, answered)
-	}()
+	defer s.settleStream(r, reservation, cacheRes, req, tally)
 
 	for {
 		select {
@@ -291,12 +250,12 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 				// Only a stream the upstream actually finished may be
 				// remembered. Storing a truncated one would replay a
 				// partial answer forever as though it were whole.
-				completed = errors.Is(recv.err, io.EOF)
-				s.finishStream(w, flusher, answered, recv.err)
+				tally.completed = errors.Is(recv.err, io.EOF)
+				s.finishStream(w, flusher, tally.answered, recv.err)
 				return
 			}
 			if recv.chunk.Usage != nil {
-				lastUsage = recv.chunk.Usage
+				tally.lastUsage = recv.chunk.Usage
 			}
 
 			// A stalled client must not pin this goroutine and its
@@ -316,13 +275,13 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 				if firstData {
 					firstData = false
 					if !info.start.IsZero() {
-						s.metrics.ObserveTTFT(answered, time.Since(info.start).Seconds())
+						s.metrics.ObserveTTFT(tally.answered, time.Since(info.start).Seconds())
 					}
 				}
 				if err := writeSSEFrame(w, recv.chunk.Data); err != nil {
 					return
 				}
-				recorder.add(recv.chunk.Data)
+				tally.recorder.add(recv.chunk.Data)
 			}
 			flusher.Flush()
 			if idleTimer != nil {
@@ -332,7 +291,7 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, prov provid
 			// Upstream went quiet past its budget; kill the call.
 			cancel()
 			_ = reader.Close()
-			s.finishStream(w, flusher, answered, providers.ErrStreamTruncated)
+			s.finishStream(w, flusher, tally.answered, providers.ErrStreamTruncated)
 			return
 		case <-ctx.Done():
 			// Client went away; release the upstream promptly.
@@ -443,4 +402,96 @@ func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// openStream makes the upstream call and reclassifies the failure when
+// the deadline was what killed it.
+//
+// The timer that sets headerTimedOut stays with the caller on purpose.
+// upstream_timeout_ms is documented as bounding the whole upstream call,
+// not only the wait for headers, so stopping it once headers arrive
+// would quietly remove the cap on everything after them.
+func openStream(ctx context.Context, prov providers.Provider, req *providers.ChatRequest, headerTimedOut *atomic.Bool) (providers.StreamReader, error) {
+	reader, err := prov.ChatStream(ctx, req)
+	if err == nil {
+		return reader, nil
+	}
+	if headerTimedOut.Load() {
+		// Without this the failure surfaces as a cancelled context, which
+		// reads as the client having hung up rather than the upstream
+		// having gone quiet.
+		return nil, &providers.ProviderError{
+			Provider: prov.Name(),
+			Class:    providers.ErrClassTimeout,
+			Message:  "upstream did not send response headers in time",
+			Err:      err,
+		}
+	}
+	return nil, err
+}
+
+// writeSSEHeaders opens the response. The flush matters: a client
+// waiting on headers should not sit behind the first chunk, which on a
+// slow model is seconds away.
+func writeSSEHeaders(w http.ResponseWriter, flusher http.Flusher) {
+	h := w.Header()
+	h.Set("Content-Type", contentTypeSSE)
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Content-Type-Options", headerNoSniff)
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+}
+
+// streamTally is what the pump loop learns and the settle path needs.
+// It exists because those two are the same three facts read at different
+// times, and passing them as arguments would mean reading them before
+// the loop has found them out.
+type streamTally struct {
+	// answered and billed are the provider that really served this and
+	// the model it was really asked for, which a fallback chain makes
+	// different from the route's own label.
+	answered string
+	billed   string
+	// lastUsage is the most recent report, never a running sum. Providers
+	// differ: some send usage once at the end, some repeat cumulative
+	// totals on every chunk, and adding those up multiplies the count.
+	lastUsage *providers.Usage
+	// recorder collects frames so a finished stream can be replayed.
+	recorder streamRecorder
+	// completed is true only when the upstream signalled a clean end.
+	// Storing a truncated stream would replay a partial answer forever as
+	// though it were whole.
+	completed bool
+}
+
+// settleStream closes out a stream: tokens recorded, a finished answer
+// stored, and the reservation settled or returned.
+//
+// It runs from a defer, so it runs on every exit including a client
+// disconnect, and it takes a context detached from the request for the
+// same reason: the money was spent whether or not the caller stayed to
+// hear about it.
+func (s *Server) settleStream(r *http.Request, reservation *budget.Reservation, cacheRes cache.Result, req *providers.ChatRequest, tally *streamTally) {
+	ctx := context.WithoutCancel(r.Context())
+
+	if tally.lastUsage != nil {
+		s.metrics.AddTokens(tally.answered, tally.lastUsage.PromptTokens, tally.lastUsage.CompletionTokens)
+	}
+
+	if tally.completed {
+		usage := providers.Usage{}
+		if tally.lastUsage != nil {
+			usage = *tally.lastUsage
+		}
+		if entry := tally.recorder.entry(tally.answered, req.Model, &cache.Entry{Usage: usage}); entry != nil {
+			s.cache.Put(ctx, cacheRes, entry, req.Raw)
+		}
+	}
+
+	// A stream that ended without ever reporting usage produced no
+	// billable evidence, so the claim goes back rather than being settled
+	// at a number nobody measured. Settling on the estimate would bill a
+	// guess.
+	s.settleOrAbort(ctx, reservation, tally.lastUsage, tally.billed, tally.answered)
 }

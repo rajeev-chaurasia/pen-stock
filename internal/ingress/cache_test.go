@@ -262,3 +262,65 @@ func TestCacheHitDoesNotTouchTheBudget(t *testing.T) {
 		t.Errorf("aborts = %d, want none: nothing was ever reserved to release", aborts)
 	}
 }
+
+// truncatingChat serves frames and then fails the way a severed upstream
+// does, rather than reporting a clean end.
+type truncatingChat struct {
+	name   string
+	mu     sync.Mutex
+	calls  int
+	frames [][]byte
+}
+
+func (c *truncatingChat) Name() string { return c.name }
+
+func (c *truncatingChat) Chat(context.Context, *providers.ChatRequest) (*providers.ChatResponse, error) {
+	return &providers.ChatResponse{Body: []byte(`{}`), Provider: c.name}, nil
+}
+
+func (c *truncatingChat) ChatStream(context.Context, *providers.ChatRequest) (providers.StreamReader, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return &truncatingReader{frames: c.frames}, nil
+}
+
+func (c *truncatingChat) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+// A stream the upstream never finished must not be stored, or a partial
+// answer is replayed forever as though it were whole. This is the
+// invariant behind ErrStreamTruncated and the reason [DONE] is never
+// fabricated, and until now nothing asserted the cache half of it.
+func TestTruncatedStreamIsNotCached(t *testing.T) {
+	prov := &truncatingChat{name: "groq", frames: [][]byte{
+		[]byte(`{"choices":[{"delta":{"content":"half an "}}]}`),
+	}}
+	ts := newCachedServer(t, prov, nil)
+	body := `{"model":"m","temperature":0,"stream":true,"messages":[{"role":"user","content":"greet"}]}`
+
+	first := postChat(t, ts, body)
+	_, _ = io.Copy(io.Discard, first.Body)
+	_ = first.Body.Close()
+	if got := prov.count(); got != 1 {
+		t.Fatalf("upstream calls = %d, want 1", got)
+	}
+
+	second := postChat(t, ts, body)
+	raw, _ := io.ReadAll(second.Body)
+	_ = second.Body.Close()
+
+	if got := second.Header.Get("X-Penstock-Cache"); got != "" {
+		t.Errorf("the repeat was served from cache (%q); a truncated answer was stored", got)
+	}
+	if got := prov.count(); got != 2 {
+		t.Errorf("upstream calls = %d, want 2: the truncated stream must not have been cached", got)
+	}
+	// And the partial answer is never terminated as though it finished.
+	if strings.Contains(string(raw), "[DONE]") {
+		t.Errorf("a truncated stream was terminated with [DONE]: %q", raw)
+	}
+}
