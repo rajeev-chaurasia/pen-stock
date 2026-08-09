@@ -190,8 +190,21 @@ can replay it from the beginning.
 | `completion_tokens` | int | Real usage. Includes reasoning tokens. |
 | `usd` | float | What this request was billed at. |
 | `price_version` | int | The price table version that produced `usd`. |
-| `cache_hit` | bool | Reserved for the caching phase. Currently always `false`. |
+| `cache_hit` | bool | Always `false`, and see below. |
 | `request_id` | string | The reservation id, unique per admitted request, tying the row back to its claim. |
+
+`cache_hit` is always `false` because a cache hit never gets this far. A
+served answer returns before the budget is consulted, so it reserves
+nothing, settles nothing, and writes no row. Every line in this file
+therefore describes a request some provider was actually paid for, which
+is the property that makes the file reconcilable against an invoice.
+
+The column stays because this is an append-only audit format with no row
+schema version: `price_version` versions the prices, not the shape.
+Dropping a column would leave two different row shapes in one file with
+nothing to tell them apart. Cache activity is observable through
+`penstock_cache_events_total`, described in
+[observability.md](observability.md).
 
 `price_version` is why spend recorded before a price change stays
 explainable after it. A row priced at version 1 can always be traced back

@@ -169,6 +169,82 @@ accounting:
   ledger_path: /var/lib/penstock/cost.jsonl
 ```
 
+## `cache`
+
+Answering a repeated question without calling a provider. Off by
+default, because a cache is a correctness decision as much as a
+performance one.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `enabled` | bool | `false` | Nothing is cached. Both tiers are off. |
+| `max_entries` | int | `4096` | The exact tier holds this many answers per gateway. Zero takes the default rather than meaning unlimited, since an unbounded cache is a memory leak with a friendly name. |
+| `ttl_seconds` | int | `300` | How long a stored answer stays usable. |
+| `max_temperature` | float | `0.0` | The highest temperature still considered reproducible. See below, because the default is stricter than it looks. |
+
+### What is never cached
+
+Eligibility is decided before any lookup, and a refusal is counted
+separately from a miss so a low hit rate can be read correctly. In the
+order the checks run:
+
+| Refused | Reason label |
+|---|---|
+| A body that does not parse | `unparsable_request` |
+| `tools`, `tool_choice`, `functions` or `function_call` carrying content | `tool_use` |
+| Any `seed`, including `seed: 0` | `seeded` |
+| `logprobs: true`, or `n` above 1 | `unsupported_options` |
+| A temperature above `max_temperature`, **or no temperature at all** | `temperature_too_high` |
+
+Two of those surprise people. **A request that names no temperature is
+refused**, because the default is whatever the provider chooses and the
+gateway cannot promise the same answer twice. And `seed: 0` is a
+deliberately pinned seed, not an absent one, so it is honoured rather
+than ignored.
+
+Tool calls are excluded because an answer whose content is an
+instruction to act is not safe to replay. That is a correctness rule,
+not a tuning knob, so none of these are configurable.
+
+Entries are keyed per tenant, so one tenant's answer cannot surface in
+another's response. That is part of the key rather than a filter applied
+afterwards, which is [ADR 0010](adr/0010-tenancy-is-part-of-the-cache-key.md).
+
+### `cache.semantic`
+
+Answering a question that is merely *similar* to one already asked. A
+separate switch from the exact tier, because it is the tier that can be
+wrong.
+
+| Option | Type | Default | If omitted |
+|---|---|---|---|
+| `enabled` | bool | `false` | The semantic tier is off, which is the recommended setting. |
+| `threshold` | float | `0.95` | Cosine similarity below which a neighbour is not the same question. Rejected at load if below `0.95` or above `1`. |
+| `embed_api_key` | string | required when enabled | Load fails. Supports `${ENV_VAR}` like every other secret here. |
+| `embed_url` | string | Google AI Studio v1beta | |
+| `embed_model` | string | `gemini-embedding-001` | |
+| `max_per_tenant` | int | `1024` | Stored vectors per tenant. |
+
+**Read [cache-quality.md](cache-quality.md) before switching this on.**
+Over 257 labelled probes, questions with opposite meanings scored higher
+than genuine paraphrases often enough that no threshold separates them.
+At the 0.95 floor, genuine paraphrases hit 24 percent of the time and
+opposite-meaning questions hit 43.9 percent: a semantic hit there is
+more likely to be answering the wrong question than the right one. The
+floor is set above the highest measured opposite rather than below the
+lowest paraphrase, so the tier fires rarely, which is the correct trade
+when the failure mode is answering the opposite of what was asked.
+
+The gateway logs a warning at startup when this tier is enabled.
+
+```yaml
+cache:
+  enabled: true
+  max_entries: 4096
+  ttl_seconds: 300
+  max_temperature: 0.0
+```
+
 ## `providers`
 
 At least one provider is required.

@@ -29,8 +29,17 @@ type Entry struct {
 	CompletionTokens int       `json:"completion_tokens"`
 	USD              float64   `json:"usd"`
 	PriceVersion     int       `json:"price_version"`
-	CacheHit         bool      `json:"cache_hit"`
-	RequestID        string    `json:"request_id"`
+	// CacheHit is always false, because a cache hit never gets this far:
+	// it is served before the budget is consulted, so it reserves
+	// nothing, settles nothing, and writes no row. Every entry here is a
+	// request some provider was paid for, which is what makes the file
+	// reconcilable against an invoice.
+	//
+	// The field stays because this is an append-only audit format with no
+	// row schema version, so dropping a column would leave two shapes in
+	// one file with nothing to tell them apart.
+	CacheHit  bool   `json:"cache_hit"`
+	RequestID string `json:"request_id"`
 }
 
 // Ledger records priced requests. Implementations must be safe for

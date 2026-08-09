@@ -342,6 +342,20 @@ func TestLoadExampleConfig(t *testing.T) {
 	if cfg.Router.MaxAttempts == 0 || cfg.Router.BreakerThreshold == 0 || cfg.Router.BreakerCooldownSeconds == 0 {
 		t.Errorf("router block did not parse from the example: %+v", cfg.Router)
 	}
+
+	// The cache block documents its defaults by writing them out, so the
+	// values have to arrive even though the tier itself ships off.
+	if cfg.Cache.Enabled {
+		t.Error("the example enables caching; it should ship off")
+	}
+	if cfg.Cache.MaxEntries == 0 || cfg.Cache.TTLSeconds == 0 {
+		t.Errorf("cache block did not parse from the example: %+v", cfg.Cache)
+	}
+	// The semantic tier stays commented out on the measured evidence, so
+	// an example that quietly enables it is a bug in the example.
+	if cfg.Cache.Semantic.Enabled {
+		t.Error("the example enables the semantic cache tier; it should stay commented out")
+	}
 }
 
 func TestExpandAPIKeyEmbedded(t *testing.T) {

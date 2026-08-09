@@ -65,6 +65,43 @@ accounting:
   # nothing to record.
   ledger_path: ""
 
+# Answering a repeated question without calling a provider. Off by
+# default: a cache is a correctness decision as much as a performance
+# one. Every value shown here is its default.
+cache:
+  enabled: false
+  # Answers held per gateway. Zero takes the default rather than meaning
+  # unlimited, since an unbounded cache is a memory leak with a friendly
+  # name.
+  max_entries: 4096
+  # How long a stored answer stays usable.
+  ttl_seconds: 300
+  # The highest temperature still considered reproducible. Note that a
+  # request naming no temperature at all is also refused, because the
+  # default is whatever the provider picks and the gateway cannot promise
+  # the same answer twice. Tool calls and seeded requests are never
+  # cached either, and that is not configurable: replaying an answer
+  # whose content is an instruction to act is a correctness problem, not
+  # a tuning choice.
+  max_temperature: 0.0
+
+  # Answering a question merely similar to one already asked. Left off,
+  # and left commented out, on the evidence rather than on principle.
+  #
+  # Over 257 labelled probes, opposite-meaning questions scored higher
+  # than genuine paraphrases often enough that no threshold separates
+  # them. At the 0.95 floor below, paraphrases hit 24 percent of the time
+  # and opposites hit 43.9 percent, so a semantic hit is more likely to
+  # be answering the wrong question than the right one. Read
+  # docs/cache-quality.md before turning this on.
+  #
+  # semantic:
+  #   enabled: true
+  #   threshold: 0.95            # rejected below 0.95 or above 1
+  #   embed_api_key: "${GEMINI_API_KEY}"
+  #   embed_model: gemini-embedding-001
+  #   max_per_tenant: 1024
+
 providers:
   # Groq's OpenAI-compatible API. api_key supports ${ENV_VAR} references,
   # resolved at load time, so real keys never live in this file.
