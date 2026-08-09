@@ -30,7 +30,7 @@ means the same thing everywhere.
 ## The request path
 
 ```mermaid
-flowchart LR
+flowchart TD
     CLIENT[Client SDK]
     LISTEN[Proxy listener]
     GATE[Auth and in-flight cap]
@@ -44,19 +44,19 @@ flowchart LR
     OPERATOR[Operator]
     ADMIN[Admin listener]
 
-    CLIENT -->|POST /v1/chat/completions| LISTEN
+    CLIENT -->|chat request| LISTEN
     LISTEN --> GATE
-    GATE -->|bearer key to tenant| CACHE
-    CACHE -->|hit, no provider call| CLIENT
+    GATE -->|key to tenant| CACHE
+    CACHE -->|hit| CLIENT
     CACHE -->|miss| BUDGET
-    BUDGET -->|estimate reserved| ROUTER
-    ROUTER -->|chosen provider| ADAPTER
-    ADAPTER -->|OpenAI or native wire| UPSTREAM
-    UPSTREAM -->|reported usage| BUDGET
-    CACHE --> STORE
-    BUDGET -->|settled row| LEDGER
+    CACHE --- STORE
+    BUDGET -->|reserved| ROUTER
+    ROUTER -->|chosen| ADAPTER
+    ADAPTER --> UPSTREAM
+    UPSTREAM -->|usage| BUDGET
+    BUDGET -->|settled| LEDGER
     OPERATOR --> ADMIN
-    ADMIN -->|tenant balances| BUDGET
+    ADMIN -->|balances| BUDGET
 
     classDef client fill:#dbeafe,stroke:#1e40af,color:#1e3a8a
     classDef gateway fill:#e2e8f0,stroke:#334155,color:#0f172a

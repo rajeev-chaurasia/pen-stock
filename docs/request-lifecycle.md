@@ -38,22 +38,22 @@ sequenceDiagram
     end
 
     C->>I: POST /v1/chat/completions
-    I->>I: bearer key to tenant, in-flight slot
-    I->>K: lookup by tenant, model, canonical body
-    K-->>I: miss, key retained for later
-    Note over K: a hit or a refusal ends the request here
+    I->>I: authenticate, take slot
+    I->>K: lookup by canonical key
+    K-->>I: miss, key retained
+    Note over K: a hit ends the request here
     I->>B: reserve estimated cost
     B-->>I: reservation
-    Note over B: a denial answers 429 or 402, no provider is called
+    Note over B: a denial answers 429 or 402
     I->>R: chat request
-    R->>P: provider chosen by strategy and health
+    R->>P: chosen by strategy and health
     P->>U: upstream call
-    U-->>P: completion and reported usage
-    P-->>R: normalized response
-    R-->>I: response plus answering provider
+    U-->>P: completion and usage
+    P-->>R: normalized reply
+    R-->>I: reply plus answering provider
     I->>B: settle actual usage
     B->>L: append priced row
-    I->>K: store answer under the retained key
+    I->>K: store under retained key
     I-->>C: 200 application/json
 ```
 
