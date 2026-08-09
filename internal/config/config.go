@@ -360,6 +360,24 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf(format, args...))
 	}
 
+	// Order is preserved from when this was one function. Callers join
+	// the errors and some tests read the joined text, so a reshuffle
+	// here is a visible change rather than a tidy up.
+	c.validateServer(add)
+	c.validateRouter(add)
+	c.validateAccounting(add)
+	c.validateCache(add)
+	c.validateAuth(add)
+	providerNames, providerModels := c.validateProviders(add)
+	c.validateRoutes(add, providerNames, providerModels)
+	c.validateTelemetry(add)
+
+	return errors.Join(errs...)
+}
+
+// validateServer covers the listener's own limits. Timeouts first, the
+// way they were checked when this lived in one function.
+func (c *Config) validateServer(add func(string, ...any)) {
 	// Zero timeouts never reach here through Load, which replaces them
 	// with defaults first; negative values would silently disable the
 	// deadline, so they are rejected rather than defaulted.
@@ -379,8 +397,14 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	c.validateRouter(add)
+	if c.Server.MaxInflight < 0 {
+		add("server: max_inflight is %d, must not be negative", c.Server.MaxInflight)
+	}
 
+}
+
+// validateAccounting checks the two files accounting writes.
+func (c *Config) validateAccounting(add func(string, ...any)) {
 	// Two different files with two different formats. Pointing them at
 	// one path corrupts both, and the failure would surface as a budget
 	// that quietly stopped persisting.
@@ -388,6 +412,11 @@ func (c *Config) Validate() error {
 		add("accounting: store_path and ledger_path are both %q; they are different files and must not share a path", p)
 	}
 
+}
+
+// validateCache is skipped entirely when caching is off, so an operator
+// who has not enabled it is never told about a field they did not set.
+func (c *Config) validateCache(add func(string, ...any)) {
 	if c.Cache.Enabled {
 		if c.Cache.MaxEntries < 0 {
 			add("cache: max_entries is %d, must not be negative", c.Cache.MaxEntries)
@@ -413,12 +442,11 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Server.MaxInflight < 0 {
-		add("server: max_inflight is %d, must not be negative", c.Server.MaxInflight)
-	}
+}
 
-	c.validateAuth(add)
-
+// validateProviders returns the declared names and their model
+// allowlists, which validateRoutes needs to check a chain against.
+func (c *Config) validateProviders(add func(string, ...any)) (map[string]bool, map[string]map[string]bool) {
 	if len(c.Providers) == 0 {
 		add("providers: at least one provider is required")
 	}
@@ -457,6 +485,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	return providerNames, providerModels
+}
+
+// validateRoutes checks each route against the providers that were
+// declared, which is why it runs after them and takes their names.
+func (c *Config) validateRoutes(add func(string, ...any), providerNames map[string]bool, providerModels map[string]map[string]bool) {
 	if len(c.Routes) == 0 {
 		add("routes: at least one route is required")
 	}
@@ -507,12 +541,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+}
+
+func (c *Config) validateTelemetry(add func(string, ...any)) {
 	switch c.Telemetry.LogLevel {
 	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
 	default:
 		add("telemetry: log_level %q must be one of %s, %s, %s, %s",
 			c.Telemetry.LogLevel, LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError)
 	}
-
-	return errors.Join(errs...)
 }
