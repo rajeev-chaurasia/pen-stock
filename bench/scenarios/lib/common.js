@@ -62,7 +62,7 @@ export const CFG = {
   // Bearer token the gateway requires. The default matches the literal
   // key in bench/config/*.yaml, which is a fixed loopback bench
   // constant and not a secret.
-  apiKey: envStr('API_KEY', 'penstock-bench-key-0123456789abcdef'),
+  apiKey: envStr('API_KEY', 'benchbenchbenchbenchbench'),
   // Model name the gateway routes. llmsim answers to any name, so the
   // direct arm can use the same one.
   model: envStr('MODEL', 'llmsim-small'),

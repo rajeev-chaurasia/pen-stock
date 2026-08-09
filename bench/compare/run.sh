@@ -144,7 +144,7 @@ fi
 # names collide with variables real machines already export, and a
 # wrong model or key turns the run into a measurement of an error path,
 # which produces a plausible number instead of an error.
-: "${BENCH_API_KEY:=penstock-bench-key-0123456789abcdef}"
+: "${BENCH_API_KEY:=benchbenchbenchbenchbench}"
 : "${BENCH_MODEL:=llmsim-small}"
 : "${BENCH_PROFILE:=bench/profiles/groq.json}"
 

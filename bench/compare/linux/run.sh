@@ -68,7 +68,7 @@ LITELLM_CLI="${LITELLM_VENV}/bin/litellm"
 : "${RAW_GZIP:=true}"
 : "${WARMUP_REQUESTS:=30}"
 
-: "${BENCH_API_KEY:=penstock-bench-key-0123456789abcdef}"
+: "${BENCH_API_KEY:=benchbenchbenchbenchbench}"
 : "${BENCH_MODEL:=llmsim-small}"
 : "${BENCH_PROFILE:=bench/profiles/groq.json}"
 

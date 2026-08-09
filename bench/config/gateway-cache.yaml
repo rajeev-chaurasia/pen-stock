@@ -19,7 +19,7 @@ server:
 
 auth:
   client_keys:
-    - "penstock-bench-key-0123456789abcdef"
+    - "benchbenchbenchbenchbench"
 
 accounting:
   ledger_path: ""

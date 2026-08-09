@@ -129,7 +129,7 @@ sleep 3
 # A real completion first, so the loop has definitely run request code.
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer penstock-bench-key-0123456789abcdef' \
+  -H 'Authorization: Bearer benchbenchbenchbenchbench' \
   -d '{"model":"llmsim-small","messages":[{"role":"user","content":"uvloop check"}],"stream":false}' \
   "http://127.0.0.1:${LITELLM_PORT}/v1/chat/completions")
 echo "live completion through the proxy: HTTP $code"

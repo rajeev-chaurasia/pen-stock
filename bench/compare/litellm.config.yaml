@@ -79,7 +79,7 @@ general_settings:
   # This is a fixed loopback benchmark constant, not a secret. It is the
   # same string Penstock's bench config uses so both arms put identical
   # bytes on the wire.
-  master_key: penstock-bench-key-0123456789abcdef
+  master_key: benchbenchbenchbenchbench
 
   # Production guide, "Error Logging" and "Spend Writes". Both are
   # database writes. With no DATABASE_URL configured they cannot fire

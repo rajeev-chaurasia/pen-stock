@@ -43,7 +43,7 @@ esac
 : "${LITELLM_NUM_WORKERS:=8}"
 : "${BENCH_PROFILE:=bench/profiles/groq.json}"
 : "${BENCH_MODEL:=llmsim-small}"
-: "${BENCH_API_KEY:=penstock-bench-key-0123456789abcdef}"
+: "${BENCH_API_KEY:=benchbenchbenchbenchbench}"
 : "${LITELLM_SIM_PORT:=8091}"
 : "${LITELLM_PORT:=8081}"
 

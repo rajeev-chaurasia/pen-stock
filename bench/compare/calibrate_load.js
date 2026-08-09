@@ -20,7 +20,7 @@ import { Trend } from 'k6/metrics';
 
 const URL = __ENV.TARGET_URL || 'http://127.0.0.1:8081';
 const MODEL = __ENV.MODEL || 'llmsim-small';
-const KEY = __ENV.API_KEY || 'penstock-bench-key-0123456789abcdef';
+const KEY = __ENV.API_KEY || 'benchbenchbenchbenchbench';
 
 const lat = new Trend('cal_latency', true);
 

@@ -215,7 +215,7 @@ esac
 # API_KEY and MODEL, which is what you want when invoking k6 directly;
 # this script passes them through --env, which overrides anything the
 # system environment carries.
-: "${BENCH_API_KEY:=penstock-bench-key-0123456789abcdef}"
+: "${BENCH_API_KEY:=benchbenchbenchbenchbench}"
 : "${BENCH_MODEL:=llmsim-small}"
 : "${BENCH_PROFILE:=bench/profiles/groq.json}"
 

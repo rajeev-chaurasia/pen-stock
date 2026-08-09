@@ -34,7 +34,7 @@ auth:
   # comparing an unauthenticated gateway against a direct upstream would
   # quietly omit a bearer token comparison the real one performs.
   client_keys:
-    - "penstock-bench-key-0123456789abcdef"
+    - "benchbenchbenchbenchbench"
 
 accounting:
   ledger_path: ""
