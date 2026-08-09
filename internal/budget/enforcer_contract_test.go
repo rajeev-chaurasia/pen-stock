@@ -21,6 +21,8 @@ package budget
 import (
 	"context"
 	"errors"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -94,11 +96,25 @@ func (c *budgetFakeClock) Advance(d time.Duration) {
 
 // --- helpers ---------------------------------------------------------
 
+// budgetNew is the constructor every test in this file goes through.
+//
+// It is a variable rather than a direct call to NewEnforcer so that one
+// test can replay every assertion here against a second implementation
+// without duplicating or editing a single assertion. See durable_test.go.
+//
+// Nothing in this package calls t.Parallel, which is what makes swapping
+// a package level variable safe. Do not add it.
+var budgetNew = func(t *testing.T, limits map[TenantID]Limits, clock Clock) *MemEnforcer {
+	t.Helper()
+	return NewEnforcer(limits, clock)
+}
+
 // budgetEnforcer builds an enforcer holding a single tenant, budgetTenant,
 // on a fake clock the caller gets back for advancing.
-func budgetEnforcer(lim Limits) (*MemEnforcer, *budgetFakeClock) {
+func budgetEnforcer(t *testing.T, lim Limits) (*MemEnforcer, *budgetFakeClock) {
+	t.Helper()
 	clock := newBudgetFakeClock()
-	return NewEnforcer(map[TenantID]Limits{budgetTenant: lim}, clock), clock
+	return budgetNew(t, map[TenantID]Limits{budgetTenant: lim}, clock), clock
 }
 
 // budgetEstUSD is an estimate that costs money but consumes no notable
@@ -213,7 +229,7 @@ func TestEnforcerDeniesUnknownTenant(t *testing.T) {
 	// A tenant nobody configured has no cap to check against, so admitting
 	// it would mean spending real money on an unbounded account. Denying is
 	// the only safe reading of a missing entry.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 100})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 100})
 
 	r, err := e.Reserve(context.Background(), budgetMissingTenant, budgetEstUSD(1))
 	budgetDenied(t, r, err, DenyUnknownTenant)
@@ -231,7 +247,7 @@ func TestEnforcerZeroLimitsMeansUnlimitedNotUnknown(t *testing.T) {
 	// forces a present check on the map rather than a zero value lookup:
 	// a tenant with all zero Limits and a tenant that is absent have the
 	// same Limits value and must behave in opposite ways.
-	e, _ := budgetEnforcer(Limits{})
+	e, _ := budgetEnforcer(t, Limits{})
 
 	const requests = 50
 	const huge = 1_000_000.0
@@ -252,7 +268,7 @@ func TestEnforcerIsolatesTenants(t *testing.T) {
 	// take the gateway down for everyone else, and its spend must not show
 	// up in anyone else's accounting.
 	clock := newBudgetFakeClock()
-	e := NewEnforcer(map[TenantID]Limits{
+	e := budgetNew(t, map[TenantID]Limits{
 		budgetTenant:      {DailyUSD: 1},
 		budgetOtherTenant: {DailyUSD: 1},
 	}, clock)
@@ -277,7 +293,7 @@ func TestReserveStampsTheReservationFromTheInjectedClock(t *testing.T) {
 	// off. If it comes from time.Now instead of the injected clock, that
 	// sweep can never be tested and will drift against the rest of the
 	// gateway.
-	e, clock := budgetEnforcer(Limits{DailyUSD: 100})
+	e, clock := budgetEnforcer(t, Limits{DailyUSD: 100})
 	est := Estimate{PromptTokens: 7, CompletionTokens: 11, USD: 0.5}
 
 	r := budgetMustReserve(t, e, budgetTenant, est)
@@ -305,7 +321,7 @@ func TestNewEnforcerAcceptsANilClock(t *testing.T) {
 	// A nil clock means real time, so production wiring does not have to
 	// pass a clock it does not care about. Panicking here would turn an
 	// omitted option into a crash on the first request.
-	e := NewEnforcer(map[TenantID]Limits{budgetTenant: {DailyUSD: 100}}, nil)
+	e := budgetNew(t, map[TenantID]Limits{budgetTenant: {DailyUSD: 100}}, nil)
 
 	before := time.Now()
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
@@ -320,7 +336,7 @@ func TestReserveIDsAreDistinctUnderConcurrency(t *testing.T) {
 	// Reservation IDs are how a settle finds the claim it is closing. Two
 	// concurrent requests sharing an ID would let one request's settle
 	// close the other's claim, which is a silent double count.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 1_000_000})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 1_000_000})
 
 	const goroutines = 200
 	var (
@@ -400,7 +416,7 @@ func TestEnforcerBudgetAdmitsUntilTheEstimateNoLongerFits(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := budgetEnforcer(tc.limits)
+			e, _ := budgetEnforcer(t, tc.limits)
 			est := budgetEstUSD(0.25)
 
 			for i := 0; i < 4; i++ {
@@ -435,7 +451,7 @@ func TestEnforcerBudgetDenialIsPerRequestNotALatch(t *testing.T) {
 	// Denying one request must not blacklist the tenant. There is still
 	// room in the cap and a smaller request genuinely fits, so refusing it
 	// would throw away budget the tenant paid for.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 1})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 1})
 
 	first := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(0.75))
 	budgetMustSettle(t, e, first, 0.75)
@@ -452,7 +468,7 @@ func TestEnforcerBudgetDenialTieIsOneOfTheTwoBudgets(t *testing.T) {
 	// Both caps are exhausted at the same instant. Which one is named is
 	// genuinely arbitrary, so this pins only that the reason is one of the
 	// two budgets and never something unrelated like a rate limit.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 1})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 1})
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
 	budgetMustSettle(t, e, r, 1)
 
@@ -496,7 +512,7 @@ func TestSettleRecordsActualNotTheEstimate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := budgetEnforcer(Limits{DailyUSD: 4, MonthlyUSD: 8})
+			e, _ := budgetEnforcer(t, Limits{DailyUSD: 4, MonthlyUSD: 8})
 
 			r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(tc.estimate))
 			// While the request is in flight the estimate is held, not spent:
@@ -519,7 +535,7 @@ func TestReleaseReturnsTheWholeReservation(t *testing.T) {
 	// A call that never reached the upstream cost nothing, so it must
 	// consume nothing. Otherwise every provider outage would also burn the
 	// tenant's budget for the day.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 1})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 1})
 
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
 	budgetBalance(t, e, budgetTenant, 0, 0, 1)
@@ -543,7 +559,7 @@ func TestSettleIsIdempotentPerReservation(t *testing.T) {
 	// The second settle deliberately carries a different, much larger
 	// amount, so an implementation that simply overwrites the recorded cost
 	// fails here rather than passing by accident.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 100, MonthlyUSD: 100})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 100, MonthlyUSD: 100})
 
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(0.5))
 	budgetMustSettle(t, e, r, 0.25)
@@ -566,7 +582,7 @@ func TestSettleAndReleaseAreTerminalFirstOneWins(t *testing.T) {
 	// committed reads lower than the truth, so the next reserve is admitted
 	// against money that is already gone.
 	t.Run("release_then_settle", func(t *testing.T) {
-		e, _ := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 1})
+		e, _ := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 1})
 		r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
 		budgetMustRelease(t, e, r)
 
@@ -583,7 +599,7 @@ func TestSettleAndReleaseAreTerminalFirstOneWins(t *testing.T) {
 	})
 
 	t.Run("settle_then_release", func(t *testing.T) {
-		e, _ := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 1})
+		e, _ := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 1})
 		r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(0.5))
 		budgetMustSettle(t, e, r, 0.5)
 
@@ -593,7 +609,7 @@ func TestSettleAndReleaseAreTerminalFirstOneWins(t *testing.T) {
 	})
 
 	t.Run("double_release", func(t *testing.T) {
-		e, _ := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 1})
+		e, _ := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 1})
 		r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(0.5))
 		budgetMustRelease(t, e, r)
 		_ = e.Release(context.Background(), r)
@@ -606,7 +622,7 @@ func TestSettleAndReleaseRejectANilReservation(t *testing.T) {
 	// with nil. Crashing takes the gateway down; returning nil would tell
 	// the caller its cost was recorded when nothing was. An error is the
 	// only honest answer.
-	e, _ := budgetEnforcer(Limits{DailyUSD: 1})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: 1})
 
 	if err := e.Settle(context.Background(), nil, providers.Usage{}, 1); err == nil {
 		t.Error("Settle(nil) returned no error, so a lost reservation looks like a recorded cost")
@@ -654,7 +670,7 @@ func TestEnforcerOvershootStaysWithinTheDocumentedBound(t *testing.T) {
 		goroutines    = 200
 	)
 
-	e, _ := budgetEnforcer(Limits{DailyUSD: dailyCap})
+	e, _ := budgetEnforcer(t, Limits{DailyUSD: dailyCap})
 
 	var (
 		mu       sync.Mutex
@@ -798,7 +814,7 @@ func TestConcurrentReserveAndSettleLoseNoUpdates(t *testing.T) {
 				estimateUSD = 1.0
 				actualUSD   = 0.125
 			)
-			e, _ := budgetEnforcer(Limits{DailyUSD: 1_000_000, MonthlyUSD: 1_000_000})
+			e, _ := budgetEnforcer(t, Limits{DailyUSD: 1_000_000, MonthlyUSD: 1_000_000})
 
 			var (
 				mu       sync.Mutex
@@ -873,7 +889,7 @@ func TestEnforcerRequestRateLimit(t *testing.T) {
 	// so. A zero RetryAfter here would tell a well behaved client to give
 	// up on a limit it only had to wait out.
 	const perMinute = 3
-	e, clock := budgetEnforcer(Limits{RequestsPerMinute: perMinute})
+	e, clock := budgetEnforcer(t, Limits{RequestsPerMinute: perMinute})
 	est := budgetEstUSD(0)
 
 	for i := 0; i < perMinute; i++ {
@@ -914,7 +930,7 @@ func TestEnforcerTokenRateLimit(t *testing.T) {
 	// numbers below are chosen so an implementation counting prompt tokens
 	// alone would admit three requests instead of two.
 	const perMinute = 300
-	e, clock := budgetEnforcer(Limits{TokensPerMinute: perMinute})
+	e, clock := budgetEnforcer(t, Limits{TokensPerMinute: perMinute})
 	est := budgetEstTokens(100, 50)
 
 	budgetMustReserve(t, e, budgetTenant, est)
@@ -940,7 +956,7 @@ func TestEnforcerTokenRateLimit(t *testing.T) {
 		// A single request bigger than the per minute allowance can never
 		// fit. Admitting it because the counter happens to be empty would
 		// let one caller blow through the cap by sending one huge request.
-		fresh, _ := budgetEnforcer(Limits{TokensPerMinute: perMinute})
+		fresh, _ := budgetEnforcer(t, Limits{TokensPerMinute: perMinute})
 		big := budgetEstTokens(perMinute, 1)
 		r, err := fresh.Reserve(context.Background(), budgetTenant, big)
 		budgetDenied(t, r, err, DenyTokenRate)
@@ -958,7 +974,7 @@ func TestEnforcerBudgetWindowsRollOver(t *testing.T) {
 	// and 40 days, both far enough past their boundary that a calendar
 	// window and a trailing window agree, so this test pins the behavior
 	// without pinning an implementation choice types.go leaves open.
-	e, clock := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 2})
+	e, clock := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 2})
 
 	// Day one: spend the whole daily cap.
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
@@ -1002,7 +1018,7 @@ func TestEnforcerBudgetWindowHoldsWithinTheSameDay(t *testing.T) {
 	// The mirror of the rollover test. Time passing inside a window must
 	// not forgive anything, or the daily cap becomes an hourly one and the
 	// tenant spends a multiple of what the operator configured.
-	e, clock := budgetEnforcer(Limits{DailyUSD: 1, MonthlyUSD: 10})
+	e, clock := budgetEnforcer(t, Limits{DailyUSD: 1, MonthlyUSD: 10})
 
 	r := budgetMustReserve(t, e, budgetTenant, budgetEstUSD(1))
 	budgetMustSettle(t, e, r, 1)
@@ -1025,7 +1041,7 @@ func TestEnforcerStoreDegradedHonorsFailClosed(t *testing.T) {
 		loose  TenantID = "loose-tenant"
 	)
 	clock := newBudgetFakeClock()
-	e := NewEnforcer(map[TenantID]Limits{
+	e := budgetNew(t, map[TenantID]Limits{
 		// Both have room to spare, so nothing but the store's health can be
 		// what decides.
 		strict: {DailyUSD: 100, FailClosed: true},
@@ -1133,7 +1149,7 @@ func TestDenialWrapsErrDeniedAndExplainsItself(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e := NewEnforcer(tc.limits, newBudgetFakeClock())
+			e := budgetNew(t, tc.limits, newBudgetFakeClock())
 			if tc.setup != nil {
 				tc.setup(t, e)
 			}
@@ -1159,5 +1175,63 @@ func TestDenialWrapsErrDeniedAndExplainsItself(t *testing.T) {
 				t.Errorf("Error() = %q, want it to contain the message %q", msg, d.Message)
 			}
 		})
+	}
+}
+
+// budgetContractTests is every test in this file, by value, so a second
+// implementation can be held to the same contract by replaying them
+// rather than by restating any of them. A test added above and not
+// listed here is checked against the in memory enforcer only, which
+// TestContractListIsComplete catches.
+var budgetContractTests = []struct {
+	name string
+	fn   func(*testing.T)
+}{
+	{"EnforcerDeniesUnknownTenant", TestEnforcerDeniesUnknownTenant},
+	{"EnforcerZeroLimitsMeansUnlimitedNotUnknown", TestEnforcerZeroLimitsMeansUnlimitedNotUnknown},
+	{"EnforcerIsolatesTenants", TestEnforcerIsolatesTenants},
+	{"ReserveStampsTheReservationFromTheInjectedClock", TestReserveStampsTheReservationFromTheInjectedClock},
+	{"NewEnforcerAcceptsANilClock", TestNewEnforcerAcceptsANilClock},
+	{"ReserveIDsAreDistinctUnderConcurrency", TestReserveIDsAreDistinctUnderConcurrency},
+	{"EnforcerBudgetAdmitsUntilTheEstimateNoLongerFits", TestEnforcerBudgetAdmitsUntilTheEstimateNoLongerFits},
+	{"EnforcerBudgetDenialIsPerRequestNotALatch", TestEnforcerBudgetDenialIsPerRequestNotALatch},
+	{"EnforcerBudgetDenialTieIsOneOfTheTwoBudgets", TestEnforcerBudgetDenialTieIsOneOfTheTwoBudgets},
+	{"SettleRecordsActualNotTheEstimate", TestSettleRecordsActualNotTheEstimate},
+	{"ReleaseReturnsTheWholeReservation", TestReleaseReturnsTheWholeReservation},
+	{"SettleIsIdempotentPerReservation", TestSettleIsIdempotentPerReservation},
+	{"SettleAndReleaseAreTerminalFirstOneWins", TestSettleAndReleaseAreTerminalFirstOneWins},
+	{"SettleAndReleaseRejectANilReservation", TestSettleAndReleaseRejectANilReservation},
+	{"EnforcerOvershootStaysWithinTheDocumentedBound", TestEnforcerOvershootStaysWithinTheDocumentedBound},
+	{"ConcurrentReserveAndSettleLoseNoUpdates", TestConcurrentReserveAndSettleLoseNoUpdates},
+	{"EnforcerRequestRateLimit", TestEnforcerRequestRateLimit},
+	{"EnforcerTokenRateLimit", TestEnforcerTokenRateLimit},
+	{"EnforcerBudgetWindowsRollOver", TestEnforcerBudgetWindowsRollOver},
+	{"EnforcerBudgetWindowHoldsWithinTheSameDay", TestEnforcerBudgetWindowHoldsWithinTheSameDay},
+	{"EnforcerStoreDegradedHonorsFailClosed", TestEnforcerStoreDegradedHonorsFailClosed},
+	{"DenialWrapsErrDeniedAndExplainsItself", TestDenialWrapsErrDeniedAndExplainsItself},
+}
+
+// A list maintained by hand rots. This reads the file back and fails if
+// a test was added without being listed, which is the only way the
+// replay silently stops covering something.
+func TestContractListIsComplete(t *testing.T) {
+	src, err := os.ReadFile("enforcer_contract_test.go")
+	if err != nil {
+		t.Fatalf("read own source: %v", err)
+	}
+	declared := regexp.MustCompile(`(?m)^func (Test\w+)\(`).FindAllStringSubmatch(string(src), -1)
+
+	listed := make(map[string]bool, len(budgetContractTests))
+	for _, tc := range budgetContractTests {
+		listed["Test"+tc.name] = true
+	}
+	// This test is itself excluded: replaying it against a second
+	// implementation would only re-read this file.
+	listed["TestContractListIsComplete"] = true
+
+	for _, m := range declared {
+		if !listed[m[1]] {
+			t.Errorf("%s is not in budgetContractTests, so it never runs against the durable enforcer", m[1])
+		}
 	}
 }

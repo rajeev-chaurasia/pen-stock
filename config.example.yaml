@@ -65,6 +65,19 @@ accounting:
   # nothing to record.
   ledger_path: ""
 
+  # A SQLite file holding each tenant's settled spend, so a daily or
+  # monthly window survives a restart instead of starting over at zero.
+  # Empty keeps the counters in memory: limits are still enforced, they
+  # just forget everything when the process does.
+  #
+  # Exactly one process may open this file. Point two gateways at it and
+  # nothing will warn you.
+  #
+  # The directory has to be writable, not just the file, because WAL mode
+  # creates -wal and -shm alongside it. A read only rootfs fails here at
+  # runtime rather than at build time.
+  store_path: ""
+
 # Answering a repeated question without calling a provider. Off by
 # default: a cache is a correctness decision as much as a performance
 # one. Every value shown here is its default.

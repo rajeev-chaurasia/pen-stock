@@ -381,6 +381,13 @@ func (c *Config) Validate() error {
 
 	c.validateRouter(add)
 
+	// Two different files with two different formats. Pointing them at
+	// one path corrupts both, and the failure would surface as a budget
+	// that quietly stopped persisting.
+	if p := c.Accounting.StorePath; p != "" && p == c.Accounting.LedgerPath {
+		add("accounting: store_path and ledger_path are both %q; they are different files and must not share a path", p)
+	}
+
 	if c.Cache.Enabled {
 		if c.Cache.MaxEntries < 0 {
 			add("cache: max_entries is %d, must not be negative", c.Cache.MaxEntries)

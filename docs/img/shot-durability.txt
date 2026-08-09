@@ -1,0 +1,33 @@
+$ cat demo.yaml
+accounting:
+  ledger_path: "demo-ledger.jsonl"
+  store_path: "budget.db"      # spend windows outlive the process
+
+$ # spend real money against a tenant capped at $1/day
+$ curl -s -o /dev/null -w "HTTP %{http_code}\n" localhost:8088/v1/chat/completions ...
+HTTP 200
+HTTP 200
+
+$ curl -s localhost:9098/admin/tenants/demo
+{"name":"demo",
+ "limits":{"requests_per_minute":3,"daily_usd":1,"fail_closed":true},
+ "daily_spent_usd":0.00005548,
+ "daily_remaining_usd":0.99994452}
+
+$ # kill it outright. no graceful shutdown, no flush.
+$ taskkill /PID 41892 /F
+SUCCESS: The process with PID 41892 has been terminated.
+
+$ ./penstock --config demo.yaml
+{"level":"INFO","msg":"budget store opened, spend windows survive a restart",
+ "path":"budget.db"}
+
+$ # a brand new process with empty memory
+$ curl -s localhost:9098/admin/tenants/demo
+{"name":"demo",
+ "limits":{"requests_per_minute":3,"daily_usd":1,"fail_closed":true},
+ "daily_spent_usd":0.00005548,
+ "daily_remaining_usd":0.99994452}
+
+$ # identical. before this the cap reset on every deploy, which meant a
+$ # daily spend cap was not a daily spend cap.

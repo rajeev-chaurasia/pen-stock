@@ -247,7 +247,12 @@ func buildAccounting(cfg *config.Config, log *slog.Logger) (*accounting, error) 
 		return nil, err
 	}
 
-	enforcer := budget.NewEnforcer(limits, nil)
+	enforcer, closeStore, err := openEnforcer(cfg, limits, log)
+	if err != nil {
+		closeLedger()
+		return nil, err
+	}
+
 	return &accounting{
 		guard: budget.NewGuard(budget.GuardOptions{
 			Estimator: budget.NewEstimator(prices, routePricing(cfg), budget.EstimatorOptions{}),
@@ -260,11 +265,49 @@ func buildAccounting(cfg *config.Config, log *slog.Logger) (*accounting, error) 
 			OnLedgerError: func(err error) {
 				log.Error("cost ledger write failed", "error", err)
 			},
+			// The counters are still right when this fires; what is at
+			// risk is their survival across a restart. Tenants marked
+			// fail_closed are already being refused by the time it does.
+			OnEnforcerError: func(err error) {
+				log.Error("budget durability lost, spend counters will not survive a restart", "error", err)
+			},
 		}),
 		enforcer: enforcer,
 		limits:   limits,
-		close:    closeLedger,
+		close:    func() { closeLedger(); closeStore() },
 	}, nil
+}
+
+// openEnforcer builds the enforcer, backed by a durable store when one
+// is configured.
+//
+// The branch is on the config string rather than on a Store value on
+// purpose. Returning a typed nil through the interface would leave a non
+// nil Store holding a nil pointer, and every settlement would panic on a
+// path that only runs in production.
+func openEnforcer(cfg *config.Config, limits map[budget.TenantID]budget.Limits, log *slog.Logger) (*budget.MemEnforcer, func(), error) {
+	path := cfg.Accounting.StorePath
+	if path == "" {
+		return budget.NewEnforcer(limits, nil), func() {}, nil
+	}
+
+	store, err := budget.OpenSQLiteStore(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open budget store: %w", err)
+	}
+	enforcer, err := budget.NewDurableEnforcer(budget.DurableOptions{
+		Limits: limits,
+		Store:  store,
+		OnDurabilityLost: func(err error) {
+			log.Error("budget store write failed", "path", path, "error", err)
+		},
+	})
+	if err != nil {
+		_ = store.Close()
+		return nil, nil, err
+	}
+	log.Info("budget store opened, spend windows survive a restart", "path", path)
+	return enforcer, func() { _ = store.Close() }, nil
 }
 
 // openLedger returns the cost ledger and a closer. An empty path means

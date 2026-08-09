@@ -27,6 +27,10 @@ type Guard struct {
 	// onLedgerError is called when an audit row cannot be written, so a
 	// silently unwritable ledger is noticed rather than assumed empty.
 	onLedgerError func(error)
+	// onEnforcerError reports a settlement the enforcer could not make
+	// durable. The request is already answered by the time this can fire,
+	// so it is a report rather than a decision.
+	onEnforcerError func(error)
 }
 
 // GuardOptions carries the collaborators a Guard needs. A nil prices
@@ -41,16 +45,22 @@ type GuardOptions struct {
 	// OnLedgerError reports a failed audit write. Leave it nil to drop
 	// the failure, which is only sensible when no ledger is configured.
 	OnLedgerError func(error)
+	// OnEnforcerError reports a settlement that could not be persisted.
+	// The figures in memory are still right; only their survival across a
+	// restart is at risk, and the enforcer has already refused to count
+	// on the store, so there is no decision left to make here.
+	OnEnforcerError func(error)
 }
 
 func NewGuard(opts GuardOptions) *Guard {
 	return &Guard{
-		estimator:     opts.Estimator,
-		enforcer:      opts.Enforcer,
-		prices:        opts.Prices,
-		kindOf:        opts.KindOf,
-		ledger:        opts.Ledger,
-		onLedgerError: opts.OnLedgerError,
+		estimator:       opts.Estimator,
+		enforcer:        opts.Enforcer,
+		prices:          opts.Prices,
+		kindOf:          opts.KindOf,
+		ledger:          opts.Ledger,
+		onLedgerError:   opts.OnLedgerError,
+		onEnforcerError: opts.OnEnforcerError,
 	}
 }
 
@@ -78,7 +88,9 @@ func (g *Guard) Settle(ctx context.Context, r *Reservation, usage providers.Usag
 		return 0
 	}
 	usd := g.Price(provider, model, usage)
-	_ = g.enforcer.Settle(ctx, r, usage, usd)
+	if err := g.enforcer.Settle(ctx, r, usage, usd); err != nil && g.onEnforcerError != nil {
+		g.onEnforcerError(err)
+	}
 	g.record(r, usage, usd, model, provider)
 	return usd
 }
@@ -116,7 +128,9 @@ func (g *Guard) Abort(ctx context.Context, r *Reservation) {
 	if g == nil || r == nil || g.enforcer == nil {
 		return
 	}
-	_ = g.enforcer.Release(ctx, r)
+	if err := g.enforcer.Release(ctx, r); err != nil && g.onEnforcerError != nil {
+		g.onEnforcerError(err)
+	}
 }
 
 // Price reports what usage costs, or zero when the pair carries no known

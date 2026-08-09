@@ -120,6 +120,21 @@ type AccountingConfig struct {
 	// but only the running totals survive, and a restart forgets which
 	// requests produced them.
 	LedgerPath string `yaml:"ledger_path"`
+
+	// StorePath is the SQLite file holding each tenant's settled spend,
+	// so a daily or monthly window survives a restart instead of starting
+	// over at zero. Empty keeps the counters in memory only, which is
+	// what a local run wants: limits are still enforced, they just forget
+	// everything when the process does.
+	//
+	// Exactly one process may open this path. Two gateways pointed at one
+	// file is not supported and is not checked for.
+	//
+	// The gateway refuses to start if the file exists but cannot be read
+	// or fails an integrity check, because starting with zeros would
+	// forgive every tenant's spend while looking exactly like a cap that
+	// is working.
+	StorePath string `yaml:"store_path"`
 }
 
 type ServerConfig struct {

@@ -9,11 +9,11 @@ controls, and survives high-pressure flow. Same job here.
 ## Security status
 
 Bearer authentication, per-tenant rate limits and per-tenant spend caps
-all work, and the loader refuses to bind anything but loopback with no
-keys configured. What is still missing before this belongs on a public
-address: tenant state lives in memory, so a restart forgets every
-window, and there is no TLS, no key rotation, and no multi-node story.
-Run it behind something that provides those.
+all work, the loader refuses to bind anything but loopback with no keys
+configured, and spend windows survive a restart when
+`accounting.store_path` is set. What is still missing before this
+belongs on a public address: there is no TLS, no key rotation, and no
+multi-node story. Run it behind something that provides those.
 
 Free provider tiers generally train on submitted prompts, so production
 or otherwise sensitive data does not belong here.
@@ -190,6 +190,29 @@ $ curl -s localhost:9098/metrics | grep denials_total
 penstock_denials_total{reason="request_rate",tenant="demo"} 5
 ```
 
+Set `accounting.store_path` and the windows survive a restart. Without
+it a daily cap resets on every deploy, which means it is not really a
+daily cap:
+
+```
+$ curl -s localhost:9098/admin/tenants/demo
+{"daily_spent_usd":0.00005548,"daily_remaining_usd":0.99994452}
+
+$ taskkill /PID 41892 /F          # killed outright, no graceful shutdown
+$ ./penstock --config demo.yaml
+{"level":"INFO","msg":"budget store opened, spend windows survive a restart"}
+
+$ curl -s localhost:9098/admin/tenants/demo
+{"daily_spent_usd":0.00005548,"daily_remaining_usd":0.99994452}
+```
+
+What is deliberately not persisted matters as much. An outstanding
+reservation is dropped, because nothing can settle or release one after
+the process that issued it is gone, so restoring a claim would strand it
+until the window rolled. The per minute rate windows are dropped too,
+since they are incremented on admission and persisting them would put a
+disk write on the request path.
+
 Each settled request appends a ledger row carrying the tenant, model,
 tokens, cost and the price list version that produced it, so a figure
 can be rechecked later rather than taken on faith. `GET /admin/tenants`
@@ -319,10 +342,10 @@ platforms: `cmd/calibrate` records real provider latency into the
 profiles llmsim replays, the k6 harness lives in [bench/](bench/), and
 every number quoted above is reproducible from it.
 
-What is deliberately not here: tenant state is in memory, so a restart
-forgets every window, and there is no TLS, key rotation, or multi-node
-story. See [docs/architecture.md](docs/architecture.md) for where those
-edges are.
+What is deliberately not here: TLS, key rotation, and any multi-node
+story. Accounting is one file opened by one process, which closes the
+restart gap without pretending to close the distributed one. See
+[docs/architecture.md](docs/architecture.md) for where those edges are.
 
 ## Documentation
 

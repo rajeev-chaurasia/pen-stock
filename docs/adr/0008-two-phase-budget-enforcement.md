@@ -95,10 +95,24 @@ message, with a 1024 token default completion allowance
 worse estimator is a wider bound, not a broken invariant, but it is
 still worse.
 
-Reservations are held in memory. A restart forgets every outstanding
-claim and every window, which the README states plainly. This is the
-largest gap in the design and it is why the gateway is not yet suitable
-for a public address or a multi node deployment.
+Settled spend is persisted when `accounting.store_path` is configured, so
+a daily or monthly window survives a restart. Outstanding claims are
+deliberately not: a reservation cannot outlive the process that issued
+it, since nothing can ever settle or release one afterwards, so restoring
+a claim would strand it until the window rolled. `committed` restoring to
+zero is correct rather than approximate.
+
+The per minute rate windows are also not persisted, because they are
+incremented on admission and persisting them would put a disk write on
+the request path. The cost is at most one minute at twice the configured
+rate, once per restart, and it is not something a caller can trigger.
+
+Without a store path the counters stay in memory and a restart forgets
+every window, which remains the right default for a local run.
+
+The store is a single file and exactly one process may open it, so this
+closes the restart gap without opening a multi node story. Sharing
+accounting across nodes is still out of scope.
 
 All tenants share one enforcer mutex. It is held for a few map lookups
 and some arithmetic, so it is not a throughput concern at this scale, but

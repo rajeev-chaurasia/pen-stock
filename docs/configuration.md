@@ -155,6 +155,30 @@ auth:
 | Option | Type | Default | If omitted |
 |---|---|---|---|
 | `ledger_path` | string | `""` | No ledger is written. |
+| `store_path` | string | `""` | Spend counters live in memory only, so a restart forgets every window. |
+
+`store_path` is a SQLite file holding each tenant's settled spend, so a
+daily or monthly cap survives a restart instead of starting over at
+zero. Without it, limits are still enforced exactly as documented, they
+just do not outlive the process, which is what a local run wants.
+
+What it does **not** hold is as deliberate as what it does. An
+outstanding reservation is never persisted, because a reservation cannot
+survive the process that issued it: no settle or release can ever arrive
+for one, so restoring a claim would strand it until the window rolled.
+Neither are the per minute rate windows, which are incremented on
+admission and would put a disk write on the request path to save at most
+one minute of allowance once per restart.
+
+Exactly one process may open the file, and nothing checks that. The
+directory must be writable, not only the file, because WAL mode creates
+`-wal` and `-shm` beside it: a read only root filesystem fails here at
+runtime rather than at build time.
+
+The gateway refuses to start if the file exists but cannot be read,
+fails an integrity check, or was written by a newer schema. Starting
+with zeros would forgive every tenant's spend while looking exactly like
+a cap that is working.
 
 The ledger is the append-only record of what each settled request cost.
 With no path, spend is still enforced and still reported, but only the

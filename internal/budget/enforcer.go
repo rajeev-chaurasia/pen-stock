@@ -15,6 +15,11 @@ const (
 	dailyWindow   = 24 * time.Hour
 	monthlyWindow = 30 * 24 * time.Hour
 	rateWindow    = time.Minute
+
+	// storeWriteTimeout bounds one durable write, so a pathological disk
+	// cannot wedge a settlement forever. Not configurable: it is a single
+	// row upsert on a local file.
+	storeWriteTimeout = 5 * time.Second
 )
 
 // Clock is injectable so window rollover and rate limits are tested
@@ -43,7 +48,26 @@ type MemEnforcer struct {
 	// done records reservations that have already settled or been
 	// released, so a repeat of either is ignored rather than counted
 	// twice.
+	//
+	// It is not persisted, and does not need to be. A *Reservation never
+	// leaves the process, so after a restart none exists to be settled a
+	// second time. That stops being true the day anything accepts a
+	// client supplied idempotency key or resumes a request across
+	// processes, and this is the comment that should stop it.
 	done map[string]bool
+
+	// store mirrors the settled totals so they outlive the process. Nil
+	// means memory only, which is the default and what a local run wants.
+	store Store
+	// storeMu serializes durable writes. Deliberately separate from mu:
+	// Reserve never touches it, so admission never waits on a disk.
+	storeMu sync.Mutex
+	// seq and written order the writes. seq is bumped under mu when a
+	// snapshot is taken, written records the newest seq that reached the
+	// store, and persist drops anything older.
+	seq              map[TenantID]uint64
+	written          map[TenantID]uint64
+	onDurabilityLost func(error)
 }
 
 // tenantState is one tenant's counters. Windows carry their own start
@@ -77,12 +101,78 @@ func NewEnforcer(limits map[TenantID]Limits, clock Clock) *MemEnforcer {
 		clock:   clock,
 		healthy: true,
 		done:    make(map[string]bool),
+		seq:     make(map[TenantID]uint64, len(limits)),
+		written: make(map[TenantID]uint64, len(limits)),
 	}
 }
 
-// SetStoreHealthy simulates the accounting store losing or regaining
-// its ability to answer.
+// DurableOptions configures an enforcer whose settled totals outlive the
+// process.
+type DurableOptions struct {
+	Limits map[TenantID]Limits
+	Clock  Clock
+	Store  Store
+	// OnDurabilityLost reports a settlement that could not be written.
+	// The figures in memory are still right; only their survival is at
+	// risk, so this is a report rather than a decision.
+	OnDurabilityLost func(error)
+}
+
+// NewDurableEnforcer builds an enforcer backed by a store, restoring the
+// settled totals it already holds.
+//
+// A restore failure is fatal rather than degraded. Starting with zeros
+// would forgive every tenant's spend while looking exactly like a cap
+// that is working, which is the failure this whole feature exists to
+// prevent.
+func NewDurableEnforcer(opts DurableOptions) (*MemEnforcer, error) {
+	e := NewEnforcer(opts.Limits, opts.Clock)
+	if opts.Store == nil {
+		return e, nil
+	}
+	e.store = opts.Store
+	e.onDurabilityLost = opts.OnDurabilityLost
+
+	rows, err := opts.Store.Load(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("restore budget store: %w", err)
+	}
+
+	// The injected clock, never time.Now: every window boundary in this
+	// package is driven by it, and restore is not an exception.
+	now := e.clock.Now()
+	for _, row := range rows {
+		if _, configured := e.limits[row.Tenant]; !configured {
+			// A tenant that is no longer in the config keeps its row. An
+			// operator who removes one and puts it back must not be handed
+			// a fresh daily budget by doing so.
+			continue
+		}
+		e.state[row.Tenant] = &tenantState{
+			dailySpent:   row.DailyUSD,
+			dailyStart:   row.DailyStart,
+			monthlySpent: row.MonthlyUSD,
+			monthlyStart: row.MonthlyStart,
+			// committed stays zero: see SpendRow. The rate windows start
+			// fresh for the same documented reason.
+			requestsAt: now,
+			tokensAt:   now,
+		}
+	}
+	// Windows are rolled by stateFor on first touch, which every one of
+	// Reserve, Spent and Committed goes through. Down for five seconds
+	// and down across a month boundary take the same path.
+	return e, nil
+}
+
+// SetStoreHealthy marks the accounting store as able or unable to
+// answer. Tests use it to drive the degraded path directly; in a running
+// gateway a failed durable write flips it.
 func (e *MemEnforcer) SetStoreHealthy(healthy bool) {
+	e.setStoreHealthy(healthy)
+}
+
+func (e *MemEnforcer) setStoreHealthy(healthy bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.healthy = healthy
@@ -153,14 +243,17 @@ func (e *MemEnforcer) Reserve(_ context.Context, tenant TenantID, est Estimate) 
 	}, nil
 }
 
-func (e *MemEnforcer) Settle(_ context.Context, r *Reservation, actual providers.Usage, usd float64) error {
+func (e *MemEnforcer) Settle(ctx context.Context, r *Reservation, actual providers.Usage, usd float64) error {
 	if r == nil {
 		return fmt.Errorf("settle: nil reservation")
 	}
+	// Not deferred. The durable write below must happen outside this
+	// lock, because holding it across a syscall would serialize every
+	// concurrent Reserve behind a disk write.
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.done[r.ID] {
 		// Already terminal. Counting it again would bill twice.
+		e.mu.Unlock()
 		return nil
 	}
 	e.done[r.ID] = true
@@ -185,6 +278,64 @@ func (e *MemEnforcer) Settle(_ context.Context, r *Reservation, actual providers
 			st.tokens = 0
 		}
 	}
+
+	if e.store == nil {
+		e.mu.Unlock()
+		return nil
+	}
+	// A sequence number taken under the same lock that produced the
+	// snapshot. Two settlements for one tenant can reach persist in
+	// either order once the lock is released, and without this the older,
+	// smaller total can land last and quietly erase money. The race
+	// detector will never see it: it is a reordering, not a data race.
+	e.seq[r.Tenant]++
+	row := SpendRow{
+		Tenant:       r.Tenant,
+		DailyUSD:     st.dailySpent,
+		MonthlyUSD:   st.monthlySpent,
+		DailyStart:   st.dailyStart,
+		MonthlyStart: st.monthlyStart,
+	}
+	seq := e.seq[r.Tenant]
+	e.mu.Unlock()
+
+	return e.persist(ctx, row, seq)
+}
+
+// persist writes one snapshot, dropping it if a fresher one already
+// landed for that tenant.
+//
+// A failure here does not mean the numbers are wrong. It means they will
+// not survive a restart, which is exactly the condition DenyStoreDegraded
+// and the per tenant fail_closed flag were built for, so the store is
+// marked unhealthy and Reserve starts refusing the tenants that asked to
+// be stopped rather than guessed at.
+func (e *MemEnforcer) persist(ctx context.Context, row SpendRow, seq uint64) error {
+	e.storeMu.Lock()
+	defer e.storeMu.Unlock()
+
+	if seq <= e.written[row.Tenant] {
+		// A newer snapshot for this tenant already reached the store, and
+		// it is a superset of this one. Writing this now would move the
+		// totals backwards.
+		return nil
+	}
+
+	// The caller's context belongs to an HTTP request that may already be
+	// cancelled, because a client that hangs up mid answer cancels it.
+	// Settlement outlives the client: the money was spent either way.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeWriteTimeout)
+	defer cancel()
+
+	if err := e.store.Save(writeCtx, row); err != nil {
+		e.setStoreHealthy(false)
+		if e.onDurabilityLost != nil {
+			e.onDurabilityLost(err)
+		}
+		return fmt.Errorf("persist tenant %q: %w", row.Tenant, err)
+	}
+	e.written[row.Tenant] = seq
+	e.setStoreHealthy(true)
 	return nil
 }
 
