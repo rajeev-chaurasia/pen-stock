@@ -1,0 +1,23 @@
+$ # the route puts a dead provider first, on purpose
+$ cat demo.yaml
+routes:
+  - model: auto
+    providers: [flaky, groq]     # flaky points at a closed port
+    provider_models:
+      groq: llama-3.3-70b-versatile
+
+$ curl -s localhost:8088/v1/chat/completions -H "Authorization: Bearer $KEY" -d "$Q"
+{"model":"llama-3.3-70b-versatile",
+ "choices":[{"message":{"role":"assistant","content":"Pacific"},"finish_reason":"stop"}],
+ "usage":{"prompt_tokens":43,"completion_tokens":2,"total_tokens":45}}
+
+$ # the gateway logs the provider that answered, not the route it was asked for
+$ tail -1 penstock.log
+{"msg":"request","path":"/v1/chat/completions","model":"auto","provider":"groq",
+ "tenant":"demo","cached":false,"status":200,"duration_ms":461,"stream":false}
+
+$ # and the cost lands on groq, because groq is who billed for it
+$ tail -1 demo-ledger.jsonl
+{"tenant":"demo","provider_kind":"groq","model":"llama-3.3-70b-versatile",
+ "prompt_tokens":43,"completion_tokens":3,"usd":0.00002774,"price_version":1,
+ "cache_hit":false,"request_id":"3"}

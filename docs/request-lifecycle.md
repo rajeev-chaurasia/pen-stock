@@ -5,10 +5,18 @@ can end it. This page walks both shapes it can take, non streaming and
 streamed, and then explains the one ordering choice that surprises people:
 why the cache runs before the budget.
 
-For the packages behind these steps and the palette these diagrams share,
-see [architecture.md](architecture.md).
+For the packages behind these steps, and for the color legend these
+diagrams share, see "How to read the diagrams" in
+[architecture.md](architecture.md).
 
 ## A non streaming request
+
+The path runs in three beats, drawn one panel at a time so each stays
+legible: admission decides whether the request is allowed and whether it
+is already answered, dispatch picks a provider and gets an answer, and
+settling turns that answer into money owed and a stored entry.
+
+### Admission
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'actorBkg':'#e2e8f0','actorBorder':'#334155','actorTextColor':'#0f172a','actorLineColor':'#64748b','signalColor':'#334155','signalTextColor':'#0f172a','noteBkgColor':'#fde68a','noteBorderColor':'#b45309','noteTextColor':'#78350f','labelBoxBkgColor':'#e2e8f0','labelBoxBorderColor':'#334155','labelTextColor':'#0f172a','loopTextColor':'#0f172a','activationBkgColor':'#bbf7d0','activationBorderColor':'#15803d','sequenceNumberColor':'#f8fafc'}}}%%
@@ -24,7 +32,25 @@ sequenceDiagram
     participant K as Cache
     participant B as Budget
     end
-    box rgb(226,232,240) Routing
+
+    C->>I: POST /v1/chat/completions
+    I->>I: authenticate, take slot
+    I->>K: lookup canonical key
+    K-->>I: miss, key retained
+    Note over K,B: a hit ends the request here
+    I->>B: reserve estimate
+    B-->>I: reservation
+    Note over K,B: a denial answers 429 or 402
+```
+
+### Dispatch
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'actorBkg':'#e2e8f0','actorBorder':'#334155','actorTextColor':'#0f172a','actorLineColor':'#64748b','signalColor':'#334155','signalTextColor':'#0f172a','noteBkgColor':'#fde68a','noteBorderColor':'#b45309','noteTextColor':'#78350f','labelBoxBkgColor':'#e2e8f0','labelBoxBorderColor':'#334155','labelTextColor':'#0f172a','loopTextColor':'#0f172a','activationBkgColor':'#bbf7d0','activationBorderColor':'#15803d','sequenceNumberColor':'#f8fafc'}}}%%
+sequenceDiagram
+    autonumber
+    box rgb(226,232,240) Gateway
+    participant I as Ingress
     participant R as Router
     end
     box rgb(187,247,208) Adapter
@@ -33,29 +59,49 @@ sequenceDiagram
     box rgb(233,213,255) Upstream
     participant U as Provider API
     end
-    box rgb(254,205,211) Storage
-    participant L as Cost ledger
-    end
 
-    C->>I: POST /v1/chat/completions
-    I->>I: authenticate, take slot
-    I->>K: lookup by canonical key
-    K-->>I: miss, key retained
-    Note over K: a hit ends the request here
-    I->>B: reserve estimated cost
-    B-->>I: reservation
-    Note over B: a denial answers 429 or 402
     I->>R: chat request
-    R->>P: chosen by strategy and health
+    R->>P: pick by strategy
+    Note over R,P: parked providers excluded first
     P->>U: upstream call
-    U-->>P: completion and usage
+    U-->>P: completion, usage
     P-->>R: normalized reply
-    R-->>I: reply plus answering provider
-    I->>B: settle actual usage
-    B->>L: append priced row
-    I->>K: store under retained key
-    I-->>C: 200 application/json
+    R-->>I: reply, who answered
 ```
+
+### Settle and answer
+
+```mermaid
+flowchart TD
+    REPLY[Reply and reported usage]
+    Q{Usage to settle}
+    SET[Settle against the reservation]
+    REL[Release the reservation]
+    LED[(Priced ledger row)]
+    ST[(Answer stored under the key)]
+    RESP[200 application/json]
+
+    REPLY --> Q
+    Q -->|usage reported| SET
+    Q -->|nothing produced| REL
+    SET --> LED
+    SET --> ST
+    ST --> RESP
+    REL --> RESP
+
+    classDef gateway fill:#e2e8f0,stroke:#334155,color:#0f172a
+    classDef policy fill:#fde68a,stroke:#b45309,color:#78350f
+    classDef storage fill:#fecdd3,stroke:#9f1239,color:#881337
+
+    class REPLY,RESP gateway
+    class Q,SET,REL policy
+    class LED,ST storage
+```
+
+This last panel is where both request shapes end up. The streamed path
+reaches it too, with one difference: its response header is already on the
+wire by then, so for a stream the final step is the ledger row and the
+stored entry rather than a status code still waiting to be written.
 
 ### What each decision point can do
 
@@ -128,6 +174,11 @@ later hit report what it avoided.
 
 The streamed path is the same up to the moment the response header is
 written, and different in one way that governs everything after it.
+Admission is unchanged, so the first panel above still applies: the same
+authentication, the same in-flight slot, the same reservation taken
+against an estimate before any provider is contacted.
+
+### Opening the stream
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'actorBkg':'#e2e8f0','actorBorder':'#334155','actorTextColor':'#0f172a','actorLineColor':'#64748b','signalColor':'#334155','signalTextColor':'#0f172a','noteBkgColor':'#fde68a','noteBorderColor':'#b45309','noteTextColor':'#78350f','labelBoxBkgColor':'#e2e8f0','labelBoxBorderColor':'#334155','labelTextColor':'#0f172a','loopTextColor':'#0f172a','activationBkgColor':'#bbf7d0','activationBorderColor':'#15803d','sequenceNumberColor':'#f8fafc'}}}%%
@@ -138,30 +189,39 @@ sequenceDiagram
     end
     box rgb(226,232,240) Gateway
     participant I as Ingress
-    end
-    box rgb(253,230,138) Policy
-    participant B as Budget
-    end
-    box rgb(226,232,240) Routing
     participant R as Router
     end
     box rgb(233,213,255) Upstream
     participant U as Provider API
     end
-    box rgb(254,205,211) Storage
-    participant L as Cost ledger
-    end
 
     C->>I: POST with stream true
-    I->>B: reserve estimated cost
-    B-->>I: reservation
+    I->>I: admit and reserve, as above
     I->>R: open stream
     R->>U: connect, send headers
     U-->>R: response headers
-    Note over R,U: fallback is legal only up to this line
+    Note over R,U: fallback legal only to here
     R-->>I: stream reader
     I-->>C: 200 text/event-stream
-    Note over I,C: first byte written, the chain is now frozen
+    Note over C,I: first byte written, chain frozen
+```
+
+### Frames and endings
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'actorBkg':'#e2e8f0','actorBorder':'#334155','actorTextColor':'#0f172a','actorLineColor':'#64748b','signalColor':'#334155','signalTextColor':'#0f172a','noteBkgColor':'#fde68a','noteBorderColor':'#b45309','noteTextColor':'#78350f','labelBoxBkgColor':'#e2e8f0','labelBoxBorderColor':'#334155','labelTextColor':'#0f172a','loopTextColor':'#0f172a','activationBkgColor':'#bbf7d0','activationBorderColor':'#15803d','sequenceNumberColor':'#f8fafc'}}}%%
+sequenceDiagram
+    autonumber
+    box rgb(233,213,255) Upstream
+    participant U as Provider API
+    end
+    box rgb(226,232,240) Gateway
+    participant I as Ingress
+    end
+    box rgb(219,234,254) Caller
+    participant C as Client
+    end
+
     loop each upstream event
         U-->>I: chunk, usage when reported
         I-->>C: data frame
@@ -170,11 +230,13 @@ sequenceDiagram
         I-->>C: terminal DONE frame
         I->>I: store the recorded frames
     else stream ended early
-        I-->>C: error frame, code stream_truncated
+        I-->>C: error frame, stream_truncated
     end
-    I->>B: settle reported usage, or release when none arrived
-    B->>L: append priced row
 ```
+
+Once the stream is over, settling is the panel from the non streaming
+path: the reservation is settled against the last reported usage or
+released when none arrived, and a settled row is priced into the ledger.
 
 ### Where fallback stops being legal
 

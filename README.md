@@ -39,6 +39,25 @@ That is one model name in front of three independent free tiers. Their
 rate limits are separate, so chaining them multiplies the headroom any
 one of them gives you.
 
+Put a dead provider first and the chain steps over it. Live, with
+`flaky` pointed at a closed port:
+
+```
+$ curl -s localhost:8088/v1/chat/completions -H "Authorization: Bearer $KEY" -d "$Q"
+{"choices":[{"message":{"content":"Pacific"},"finish_reason":"stop"}], ...}
+
+$ tail -1 penstock.log
+{"msg":"request","model":"auto","provider":"groq","status":200,"duration_ms":461}
+
+$ tail -1 demo-ledger.jsonl
+{"tenant":"demo","provider_kind":"groq","usd":0.00002774,"price_version":1, ...}
+```
+
+The route is named `auto`, and both the log and the ledger say `groq`.
+Attribution follows the provider that answered, not the label the
+request arrived under, which is the only version of it that survives a
+fallback.
+
 ### Providers
 
 | Kind | Wire format | Verified |
@@ -159,6 +178,15 @@ bounded amount that `internal/budget` documents and a test asserts.
 
 A rate limit answers 429 with a Retry-After. An exhausted budget answers
 402 without one, because waiting does not refill it.
+
+```
+$ # this tenant is capped at 3 requests per minute
+request 4: HTTP 429  Retry-After: 34
+request 5: HTTP 429  Retry-After: 34
+
+$ curl -s localhost:9098/metrics | grep denials_total
+penstock_denials_total{reason="request_rate",tenant="demo"} 5
+```
 
 Each settled request appends a ledger row carrying the tenant, model,
 tokens, cost and the price list version that produced it, so a figure

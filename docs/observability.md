@@ -124,7 +124,12 @@ Worth knowing before you go looking for them.
 - **Cost per tenant per token, or tokens by tenant.**
   `penstock_tokens_total` carries no `tenant` label, so token spend cannot
   be divided by tenant. The ledger can answer this offline.
-- **Cache hit ratio.** The metric is registered but never emitted.
+- ~~**Cache hit ratio.** The metric is registered but never emitted.~~
+  This was wrong. `penstock_cache_events_total` does emit, verified
+  against a running gateway: `exact_hit`, `miss`, `stored` and
+  `ineligible` all increment, so the hit ratio is
+  `exact_hit / (exact_hit + miss)` and refusals are separable from
+  misses. Corrected after checking rather than rereading.
 - **Load shedding specifically.** A request rejected at `max_inflight`
   surfaces as `code="503"`, mixed in with fail-closed accounting denials.
   Only the denials metric distinguishes the latter.
